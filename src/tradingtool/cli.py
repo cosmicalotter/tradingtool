@@ -70,6 +70,7 @@ def _edgar(settings: Settings):
 
 def _price_source(settings: Settings, broker=None):
     from tradingtool.prices.sources import (
+        AlpacaSource,
         CsvSource,
         EodhdSource,
         IbkrSource,
@@ -87,6 +88,10 @@ def _price_source(settings: Settings, broker=None):
     if name == "eodhd":
         key = settings.eodhd_api_key.get_secret_value() if settings.eodhd_api_key else ""
         return EodhdSource(key)
+    if name == "alpaca":
+        kid = settings.alpaca_key_id.get_secret_value() if settings.alpaca_key_id else ""
+        sec = settings.alpaca_secret_key.get_secret_value() if settings.alpaca_secret_key else ""
+        return AlpacaSource(kid.strip(), sec.strip())
     if name == "csv":
         return CsvSource(settings.data_dir / "csv")
     if name == "ibkr":
@@ -305,7 +310,11 @@ def _sync_prices(settings: Settings, cfg: AppConfig, start: date, end: date) -> 
             src,
             relevant_tickers(con, [settings.benchmark_ticker, settings.benchmark_secondary_ticker]),
             boundary=st.first_day,
-            history_start=end - timedelta(days=settings.massive_history_days),
+            # Massive solo cubre ~2 años; las demás fuentes re-descargan toda la historia
+            # para que el ajuste por split quede consistente de punta a punta.
+            history_start=end - timedelta(days=settings.massive_history_days)
+            if settings.price_source == "massive"
+            else date(2005, 1, 1),
             end=end,
         )
         if repaired:

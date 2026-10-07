@@ -402,3 +402,73 @@ def test_recent_empty_day_is_not_marked_as_holiday(con):
     assert (
         con.execute("select count(*) from meta where key like 'sin_mercado:%'").fetchone()[0] == 0
     )
+
+
+def test_alpaca_paginates_sends_headers_and_converts_dates():
+    from tradingtool.prices.sources import AlpacaSource
+
+    seen = []
+
+    def handler(request):
+        seen.append(request)
+        if "page_token" not in request.url.params:
+            return httpx.Response(
+                200,
+                json={
+                    "bars": {
+                        "BRK.B": [
+                            {
+                                "t": "2020-03-02T05:00:00Z",
+                                "o": 1,
+                                "h": 2,
+                                "l": 0.5,
+                                "c": 1.5,
+                                "v": 100,
+                            },
+                        ]
+                    },
+                    "next_page_token": "abc",
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "bars": {
+                    "BRK.B": [
+                        {"t": "2020-03-03T05:00:00Z", "o": 2, "h": 3, "l": 1, "c": 2.5, "v": 200},
+                    ]
+                },
+                "next_page_token": None,
+            },
+        )
+
+    src = AlpacaSource("KID", "SEC", transport=httpx.MockTransport(handler), sleep=lambda s: None)
+    df = src.daily_bars("brk.b", date(2020, 3, 1), date(2020, 3, 31))
+    assert len(seen) == 2
+    assert seen[0].url.path == "/v2/stocks/bars"
+    assert seen[0].headers["APCA-API-KEY-ID"] == "KID"
+    assert seen[0].headers["APCA-API-SECRET-KEY"] == "SEC"
+    assert seen[0].url.params["adjustment"] == "all"
+    assert seen[0].url.params["timeframe"] == "1Day"
+    assert seen[1].url.params["page_token"] == "abc"
+    assert list(df["date"]) == [date(2020, 3, 2), date(2020, 3, 3)]
+    assert list(df["close"]) == [1.5, 2.5]
+    assert set(df["ticker"]) == {"BRK.B"}
+
+
+def test_alpaca_never_requests_today_and_requires_keys():
+    from tradingtool.prices.sources import AlpacaSource
+
+    seen = []
+
+    def handler(request):
+        seen.append(request)
+        return httpx.Response(200, json={"bars": {}, "next_page_token": None})
+
+    src = AlpacaSource("K", "S", transport=httpx.MockTransport(handler), sleep=lambda s: None)
+    today = date.today()
+    assert src.daily_bars("SPY", today, today + timedelta(days=3)).empty
+    src.daily_bars("SPY", today - timedelta(days=30), today)
+    assert date.fromisoformat(seen[-1].url.params["end"]) < today
+    with pytest.raises(PriceSourceError):
+        AlpacaSource("K", "")

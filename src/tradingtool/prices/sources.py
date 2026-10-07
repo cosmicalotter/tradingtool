@@ -4,6 +4,7 @@
   de un día en una sola llamada (ideal para el plan gratuito, limitado en llamadas/minuto) e
   incluye acciones que luego se deslistaron (sin sesgo de supervivencia en ese periodo).
 - TiingoSource: por ticker; plan gratuito limitado en símbolos únicos por mes.
+- AlpacaSource: por ticker; plan gratuito con historia desde 2016 y ~200 llamadas/minuto.
 - IbkrSource: históricos vía TWS/IB Gateway (solo tickers que cotizan hoy).
 - CsvSource: archivos locales (pruebas o datos importados por el usuario).
 
@@ -14,7 +15,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -193,6 +194,86 @@ class TiingoSource:
             for r in data
         ]
         return normalize_bars(pd.DataFrame(rows, columns=COLUMNS))
+
+
+# ----------------------------------------------------------------------------- Alpaca
+
+
+class AlpacaSource:
+    """Alpaca Market Data (plan gratuito "Basic"): barras diarias ajustadas desde 2016.
+
+    Necesita una cuenta gratuita (basta la paper) y sus dos claves. El plan gratuito no entrega
+    los últimos 15 minutos del feed SIP, así que nunca se pide el día de hoy.
+    Limitación honesta: la cobertura de acciones deslistadas es parcial.
+    """
+
+    name = "alpaca"
+    adjusted = True
+
+    def __init__(
+        self,
+        key_id: str,
+        secret_key: str,
+        base_url: str = "https://data.alpaca.markets",
+        calls_per_minute: float = 180.0,  # plan gratuito: 200/min; dejamos margen
+        feed: str = "sip",
+        transport: httpx.BaseTransport | None = None,
+        sleep: Callable[[float], None] | None = None,
+    ):
+        if not key_id or not secret_key:
+            raise PriceSourceError("Faltan TT_ALPACA_KEY_ID y/o TT_ALPACA_SECRET_KEY en tu .env.")
+        self.base_url = base_url.rstrip("/")
+        self.feed = feed
+        self._client = _HttpJsonClient(
+            {"APCA-API-KEY-ID": key_id, "APCA-API-SECRET-KEY": secret_key},
+            max_per_second=calls_per_minute / 60.0,
+            transport=transport,
+            sleep=sleep,
+        )
+
+    def daily_bars(self, ticker: str, start: date, end: date) -> pd.DataFrame:
+        end = min(end, datetime.now(NY).date() - timedelta(days=1))
+        if start > end:
+            return pd.DataFrame(columns=COLUMNS)
+        sym = ticker.upper()
+        params: dict[str, object] = {
+            "symbols": sym,
+            "timeframe": "1Day",
+            "start": f"{start:%Y-%m-%d}",
+            "end": f"{end:%Y-%m-%d}",
+            "adjustment": "all",
+            "feed": self.feed,
+            "limit": 10000,
+            "sort": "asc",
+        }
+        rows: list[dict] = []
+        for _ in range(100):  # tope de páginas por seguridad
+            data = self._client.get_json(f"{self.base_url}/v2/stocks/bars", params)
+            if not isinstance(data, dict):
+                break
+            for r in (data.get("bars") or {}).get(sym) or []:
+                if not r.get("t"):
+                    continue
+                rows.append(
+                    {
+                        "ticker": sym,
+                        "date": _iso_to_ny_date(r["t"]),
+                        "open": r.get("o"),
+                        "high": r.get("h"),
+                        "low": r.get("l"),
+                        "close": r.get("c"),
+                        "volume": r.get("v"),
+                    }
+                )
+            token = data.get("next_page_token")
+            if not token:
+                break
+            params = {**params, "page_token": token}
+        return normalize_bars(pd.DataFrame(rows, columns=COLUMNS))
+
+
+def _iso_to_ny_date(ts: str) -> date:
+    return datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone(NY).date()
 
 
 # ----------------------------------------------------------------------------- EODHD

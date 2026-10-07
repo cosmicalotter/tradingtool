@@ -21,6 +21,7 @@ No existe una fuente gratuita y descargable que cubra eso. Estas son las alterna
 
 | Opción | Costo | Ventaja | Desventaja |
 |---|---|---|---|
+| **Alpaca** (plan gratuito "Basic") | **US$0** | Historia desde 2016, ~200 llamadas/min; integrada (`TT_PRICE_SOURCE=alpaca`) | No llega a 2009 y cubre solo en parte las deslistadas (algo de sesgo de supervivencia) |
 | **EODHD** "EOD Historical Data – All World" | **US$19,99** un mes | La más barata; ya está integrada en la herramienta (`TT_PRICE_SOURCE=eodhd`) | Tickers reutilizados vienen con sufijo `_old`; revisa la licencia antes de guardar datos |
 | Sharadar SEP (historia completa) | ~US$39 un mes | Mejor calidad: ID permanente por empresa y razones de deslistado | La licencia exige borrar los datos crudos 30 días después de cancelar; requiere integrar un adaptador nuevo |
 | Massive Advanced | US$199 un mes | Un solo proveedor | Caro; datos sin ajustar |

@@ -86,14 +86,27 @@ uv run tt evaluar --origen backtest                         # veredicto pre-regi
 
 El periodo de **reserva** (desde 2025-10-01) está bloqueado: se abre una sola vez, al final, con `--abrir-reserva`, y la apertura queda registrada. Con solo ~12 meses de historia gratuita, lo esperable es el veredicto **INSUFICIENTE**.
 
-Para una validación seria 2009–2025, la opción más barata es pagar **un mes de EODHD (US$19,99)**. Pon `TT_PRICE_SOURCE=eodhd` y `TT_EODHD_API_KEY=...` en `.env`, y luego:
+**Gratis, historia 2016–hoy: Alpaca.** Crea una cuenta gratuita en alpaca.markets (basta la *paper*), genera las claves en *API Keys* y ponlas en `.env` (sin comillas, sin espacios alrededor del `=`):
+
+```
+TT_ALPACA_KEY_ID=...
+TT_ALPACA_SECRET_KEY=...
+```
+
+Usa una carpeta de datos aparte para no mezclar precios de dos proveedores. Con fuentes "por ticker" (Alpaca, EODHD, Tiingo) los **precios van antes** de `historico`, porque el filtro de liquidez los necesita:
 
 ```bash
-uv run tt sec-historico --desde 2006Q1 --hasta 2025Q3
-uv run tt historico --desde 2009-01-01 --hasta 2025-09-30
-uv run tt precios --desde 2008-09-01 --hasta 2025-12-31   # solo los tickers de los eventos
-uv run tt resultados && uv run tt evaluar --origen backtest
+export TT_DATA_DIR=data_alpaca TT_PRICE_SOURCE=alpaca
+uv run tt iniciar
+uv run tt sec-historico --desde 2013Q1 --hasta 2026Q1
+uv run tt precios --desde 2016-01-01 --hasta 2026-01-31    # solo tickers con compras de insiders
+uv run tt historico --desde 2016-04-01 --hasta 2025-09-30
+uv run tt resultados
+uv run tt evaluar --origen backtest --periodo validacion
+unset TT_DATA_DIR TT_PRICE_SOURCE                          # volver a la base diaria
 ```
+
+Limitación honesta: Alpaca cubre solo en parte las acciones deslistadas, así que el resultado puede salir algo optimista (sesgo de supervivencia). Para 2009–2025 con deslistadas completas, la opción más barata es pagar **un mes de EODHD (US$19,99)** con el mismo orden de comandos (`TT_PRICE_SOURCE=eodhd`, `TT_EODHD_API_KEY=...`, `sec-historico --desde 2006Q1`, `precios --desde 2008-09-01`, `historico --desde 2009-01-01`).
 
 Ver `docs/EVALUACION.md` §5 y `docs/COSTOS.md`.
 

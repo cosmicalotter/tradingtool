@@ -12,7 +12,7 @@ from typing import Literal
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-PriceSourceName = Literal["massive", "tiingo", "eodhd", "ibkr", "csv"]
+PriceSourceName = Literal["massive", "tiingo", "eodhd", "alpaca", "ibkr", "csv"]
 
 
 class Settings(BaseSettings):
@@ -49,6 +49,8 @@ class Settings(BaseSettings):
     massive_history_days: int = 730
     tiingo_api_key: SecretStr | None = None
     eodhd_api_key: SecretStr | None = None  # opcional: un mes pagado para historia larga
+    alpaca_key_id: SecretStr | None = None  # gratis: historia desde 2016
+    alpaca_secret_key: SecretStr | None = None
     benchmark_ticker: str = "SPY"
     # Secundario: las compras de insiders se concentran en empresas pequeñas; IWM controla
     # (en parte) que el exceso no sea solo "prima de tamaño".
