@@ -1,0 +1,25 @@
+# Secretos: NUNCA subir
+.env
+.env.*
+!.env.example
+
+# Datos, bases y logs locales
+data/
+*.duckdb
+*.duckdb.wal
+logs/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Editores / SO
+.vscode/
+.idea/
+.DS_Store
