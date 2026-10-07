@@ -62,7 +62,9 @@ class _HttpJsonClient:
                     return resp.json()
                 if resp.status_code in (401, 403):
                     raise PriceSourceError(
-                        f"Clave de API inválida o sin permiso para este dato ({resp.status_code})"
+                        f"Clave de API inválida, o el dato está fuera de lo que cubre tu plan "
+                        f"(p. ej. el plan gratuito de Massive solo cubre ~2 años) "
+                        f"({resp.status_code})"
                     )
                 if resp.status_code == 404:
                     return None
@@ -91,7 +93,7 @@ class MassiveSource:
         self,
         api_key: str,
         base_url: str = "https://api.massive.com",
-        calls_per_minute: float = 5.0,
+        calls_per_minute: float = 4.5,  # plan gratuito: 5/min; dejamos margen (~13 s)
         transport: httpx.BaseTransport | None = None,
         sleep: Callable[[float], None] | None = None,
     ):
@@ -191,6 +193,79 @@ class TiingoSource:
             for r in data
         ]
         return normalize_bars(pd.DataFrame(rows, columns=COLUMNS))
+
+
+# ----------------------------------------------------------------------------- EODHD
+
+
+class EodhdSource:
+    """EODHD "EOD Historical Data" (pago, ~US$20 por un mes): historia larga por ticker,
+    incluidas acciones deslistadas. Útil para la validación histórica 2009-2025.
+
+    EODHD exige la clave en la URL (``api_token``); por eso el logging de httpx se silencia.
+    Los precios OHLC se ajustan con el factor ``adjusted_close / close``.
+    """
+
+    name = "eodhd"
+    adjusted = True
+
+    def __init__(
+        self,
+        api_key: str,
+        base_url: str = "https://eodhd.com",
+        requests_per_second: float = 5.0,
+        transport: httpx.BaseTransport | None = None,
+        sleep: Callable[[float], None] | None = None,
+    ):
+        if not api_key:
+            raise PriceSourceError("Falta TT_EODHD_API_KEY en tu .env.")
+        self.base_url = base_url.rstrip("/")
+        self._key = api_key
+        self._client = _HttpJsonClient(
+            {}, max_per_second=requests_per_second, transport=transport, sleep=sleep
+        )
+
+    def daily_bars(self, ticker: str, start: date, end: date) -> pd.DataFrame:
+        sym = ticker.upper().replace(".", "-")
+        data = self._client.get_json(
+            f"{self.base_url}/api/eod/{sym}.US",
+            {
+                "from": f"{start:%Y-%m-%d}",
+                "to": f"{end:%Y-%m-%d}",
+                "fmt": "json",
+                "api_token": self._key,
+            },
+        )
+        if not isinstance(data, list):
+            return pd.DataFrame(columns=COLUMNS)
+        rows = []
+        for r in data:
+            close, adj = r.get("close"), r.get("adjusted_close")
+            try:
+                f = float(adj) / float(close) if close and adj else 1.0
+            except (TypeError, ValueError, ZeroDivisionError):
+                f = 1.0
+            rows.append(
+                {
+                    "ticker": ticker.upper(),
+                    "date": r.get("date"),
+                    "open": _scale(r.get("open"), f),
+                    "high": _scale(r.get("high"), f),
+                    "low": _scale(r.get("low"), f),
+                    "close": _scale(close, f),
+                    "volume": (float(r["volume"]) / f)
+                    if r.get("volume") and f
+                    else r.get("volume"),
+                }
+            )
+        return normalize_bars(pd.DataFrame(rows, columns=COLUMNS))
+
+
+def _scale(value: object, factor: float) -> float | None:
+    try:
+        return float(value) * factor  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
 
 
 # ----------------------------------------------------------------------------- IBKR

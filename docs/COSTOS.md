@@ -13,7 +13,20 @@ Objetivo: **US$0 al mes** en la herramienta mientras se investiga. Cada costo pu
 | LLM | **No se usa en v1** (reglas fijas). Si se agrega: Gemini con tus créditos de Vertex, o un modelo local | US$0 |
 | Servidor/VPS | No hace falta: corre en tu computador ~10 min al día | US$0 |
 | CI (tests automáticos) | GitHub Actions | Gratis |
-| **Opcional, una vez** | Un mes de historia larga de precios con acciones deslistadas (ver EVALUACION.md §5) | ~US$20–80 una vez, solo si lo apruebas |
+| **Opcional, una vez** | Un mes de historia larga de precios con acciones deslistadas (ver abajo) | ~US$20–39 una vez, solo si lo apruebas |
+
+### Opciones para validar con historia larga (2009–2025, incluyendo deslistadas)
+
+No existe una fuente gratuita y descargable que cubra eso. Estas son las alternativas (precios vistos en octubre de 2026; verifícalos antes de pagar):
+
+| Opción | Costo | Ventaja | Desventaja |
+|---|---|---|---|
+| **EODHD** "EOD Historical Data – All World" | **US$19,99** un mes | La más barata; ya está integrada en la herramienta (`TT_PRICE_SOURCE=eodhd`) | Tickers reutilizados vienen con sufijo `_old`; revisa la licencia antes de guardar datos |
+| Sharadar SEP (historia completa) | ~US$39 un mes | Mejor calidad: ID permanente por empresa y razones de deslistado | La licencia exige borrar los datos crudos 30 días después de cancelar; requiere integrar un adaptador nuevo |
+| Massive Advanced | US$199 un mes | Un solo proveedor | Caro; datos sin ajustar |
+| QuantConnect (nube gratuita) | US$0 | Datos sin sesgo de supervivencia desde 1998 | No se pueden exportar: habría que reescribir el estudio allá |
+
+Los planes Starter (US$29, 5 años) y Developer (US$79, 10 años) de Massive **no** llegan a 2009.
 
 ## 2. Costos de invertir
 

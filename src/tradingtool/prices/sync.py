@@ -127,8 +127,9 @@ def sync_market(
             stats.errors.append(f"{d}: {exc}")
             log.warning("Mercado %s: %s", d, exc)
             continue
-        if df.empty and d < date.today():
-            # Día hábil sin datos de mercado: feriado. Se recuerda para no volver a pedirlo.
+        if df.empty and d <= date.today() - timedelta(days=4):
+            # Día hábil sin datos (ya viejo, así que no es "aún no publicado"): feriado.
+            # Se recuerda para no volver a pedirlo.
             con.execute(
                 "INSERT INTO meta VALUES (?, ?) ON CONFLICT (key) DO NOTHING",
                 [f"{NO_MARKET_PREFIX}{d}", source.name],

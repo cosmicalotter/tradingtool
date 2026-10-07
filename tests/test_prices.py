@@ -293,3 +293,56 @@ def test_holidays_are_remembered(con):
     src.calls.clear()
     sync_market(con, src, days[0], days[-1])
     assert src.calls == []
+
+
+def test_eodhd_adjusts_ohlc_and_uses_dash_symbols():
+    from tradingtool.prices.sources import EodhdSource
+
+    seen = []
+
+    def handler(request):
+        seen.append(request)
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "date": "2015-06-01",
+                    "open": 100,
+                    "high": 110,
+                    "low": 90,
+                    "close": 100,
+                    "adjusted_close": 50,
+                    "volume": 1000,
+                },
+            ],
+        )
+
+    src = EodhdSource("TOK", transport=httpx.MockTransport(handler), sleep=lambda s: None)
+    df = src.daily_bars("BRK.B", date(2015, 1, 1), date(2015, 12, 31))
+    assert seen[0].url.path == "/api/eod/BRK-B.US"
+    assert seen[0].url.params["from"] == "2015-01-01"
+    row = df.iloc[0]
+    assert (row["open"], row["high"], row["low"], row["close"]) == (50, 55, 45, 50)
+    assert row["volume"] == 2000  # volumen ajustado inversamente
+    with pytest.raises(PriceSourceError):
+        EodhdSource("")
+
+
+def test_httpx_urls_are_not_logged(tmp_path):
+    import logging
+
+    from tradingtool.logging_setup import setup_logging
+
+    setup_logging(tmp_path)
+    assert logging.getLogger("httpx").getEffectiveLevel() >= logging.WARNING
+
+
+def test_recent_empty_day_is_not_marked_as_holiday(con):
+    d = date.today() - timedelta(days=1)
+    src = FakeSource(
+        pd.DataFrame(columns=["ticker", "date", "open", "high", "low", "close", "volume"])
+    )
+    sync_market(con, src, d, d)
+    assert (
+        con.execute("select count(*) from meta where key like 'sin_mercado:%'").fetchone()[0] == 0
+    )

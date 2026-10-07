@@ -53,9 +53,9 @@ uv run tt revisar
 # los insiders como rutinarios u oportunistas. Son ~10-17 MB por trimestre.
 uv run tt sec-historico --desde 2021Q1 --hasta 2026Q2
 
-# Precios diarios de todo el mercado. El plan gratuito cubre ~2 años y permite pocas
-# llamadas por minuto: esto tarda ~1-2 horas. Déjalo corriendo.
-uv run tt precios --desde 2024-10-01
+# Precios diarios de todo el mercado (una llamada por día, ~13 s entre llamadas por el
+# límite del plan gratuito). ~500 días tardan ~2 horas. Déjalo corriendo.
+uv run tt precios --desde 2024-10-15
 ```
 
 ## 3. Uso diario (~10 minutos)
@@ -84,7 +84,18 @@ uv run tt resultados                                        # mide qué pasó de
 uv run tt evaluar --origen backtest                         # veredicto pre-registrado
 ```
 
-El periodo de **reserva** (desde 2025-10-01) está bloqueado: se abre una sola vez, al final, con `--abrir-reserva`, y la apertura queda registrada. Con solo ~12 meses de historia gratuita, lo esperable es el veredicto **INSUFICIENTE**. Ver `docs/EVALUACION.md` §5 para las opciones.
+El periodo de **reserva** (desde 2025-10-01) está bloqueado: se abre una sola vez, al final, con `--abrir-reserva`, y la apertura queda registrada. Con solo ~12 meses de historia gratuita, lo esperable es el veredicto **INSUFICIENTE**.
+
+Para una validación seria 2009–2025, la opción más barata es pagar **un mes de EODHD (US$19,99)**. Pon `TT_PRICE_SOURCE=eodhd` y `TT_EODHD_API_KEY=...` en `.env`, y luego:
+
+```bash
+uv run tt sec-historico --desde 2006Q1 --hasta 2025Q3
+uv run tt historico --desde 2009-01-01 --hasta 2025-09-30
+uv run tt precios --desde 2008-09-01 --hasta 2025-12-31   # solo los tickers de los eventos
+uv run tt resultados && uv run tt evaluar --origen backtest
+```
+
+Ver `docs/EVALUACION.md` §5 y `docs/COSTOS.md`.
 
 ## 5. IBKR paper (opcional en esta fase)
 
@@ -96,6 +107,8 @@ El periodo de **reserva** (desde 2025-10-01) está bloqueado: se abre una sola v
    - usa el puerto **4002**;
    - en *Trusted IPs*, solo `127.0.0.1`.
 4. Ejecuta `uv run tt cuenta` para ver tu cuenta paper en solo lectura.
+
+Los históricos de precios por la API de IBKR exigen una suscripción de datos de mercado y no incluyen acciones deslistadas. Por eso la herramienta usa Massive para los precios y deja IBKR solo para consultar la cuenta.
 
 ## 6. Comandos
 

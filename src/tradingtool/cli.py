@@ -69,7 +69,13 @@ def _edgar(settings: Settings):
 
 
 def _price_source(settings: Settings, broker=None):
-    from tradingtool.prices.sources import CsvSource, IbkrSource, MassiveSource, TiingoSource
+    from tradingtool.prices.sources import (
+        CsvSource,
+        EodhdSource,
+        IbkrSource,
+        MassiveSource,
+        TiingoSource,
+    )
 
     name = settings.price_source
     if name == "massive":
@@ -78,6 +84,9 @@ def _price_source(settings: Settings, broker=None):
     if name == "tiingo":
         key = settings.tiingo_api_key.get_secret_value() if settings.tiingo_api_key else ""
         return TiingoSource(key)
+    if name == "eodhd":
+        key = settings.eodhd_api_key.get_secret_value() if settings.eodhd_api_key else ""
+        return EodhdSource(key)
     if name == "csv":
         return CsvSource(settings.data_dir / "csv")
     if name == "ibkr":

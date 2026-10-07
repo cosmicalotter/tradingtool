@@ -37,4 +37,7 @@ def setup_logging(log_dir: Path | None = None, level: int = logging.INFO) -> Non
         fh = logging.FileHandler(log_dir / "tradingtool.jsonl", encoding="utf-8")
         fh.setFormatter(JsonLinesFormatter())
         root.addHandler(fh)
+    # httpx registra cada URL a nivel INFO; algunas APIs llevan la clave en la URL (EODHD).
+    for noisy in ("httpx", "httpcore"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
     root._tt_configured = True  # type: ignore[attr-defined]

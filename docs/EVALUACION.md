@@ -106,7 +106,7 @@ Grupo: señales que **pasan** los filtros. Horizonte: 63 días hábiles. Origen:
 Hay dos caminos, ambos válidos:
 
 - **(a) Gratis.** Acumular resultados día a día en paper durante 12–24 meses.
-- **(b) Pago puntual.** Comprar **un mes** de un plan con historia larga (incluyendo acciones deslistadas) para evaluar 2009–2025 de una vez. Se decide con tu aprobación explícita.
+- **(b) Pago puntual.** Comprar **un mes** de un plan con historia larga (incluyendo acciones deslistadas) para evaluar 2009–2025 de una vez. La opción más barata, EODHD a US$19,99, ya está integrada; ver `docs/COSTOS.md`. Se decide con tu aprobación explícita.
 
 ## 6. Qué pasa después del veredicto
 
@@ -121,7 +121,7 @@ Pasar a dinero real exige además los criterios de la Fase 4 del plan (`docs/00-
 | Sesgo | Control |
 |---|---|
 | Mirar al futuro | §3 y sus tests |
-| Supervivencia | Se usan los datasets completos de la SEC (incluyen empresas que luego desaparecieron) y los resultados truncados no se descartan. **Riesgo restante:** la fuente de precios debe incluir acciones deslistadas; Massive "grouped daily" las incluye en el periodo que cubre. |
+| Supervivencia | Se usan los datasets completos de la SEC (incluyen empresas que luego desaparecieron) y los resultados truncados no se descartan. Massive "grouped daily" incluye las acciones deslistadas en el periodo que cubre. **Prueba de robustez:** `tt evaluar` repite el cálculo restando 30% a las señales que dejaron de cotizar (Shumway, 1997), porque ningún proveedor barato da el "retorno de deslistado". |
 | Sobreajuste / múltiples pruebas | Parámetros de la literatura, sin optimizar. Toda ejecución queda registrada en la tabla `runs` (commit y hash de config). Las versiones nuevas se nombran y se corren en paralelo. |
 | Precios ajustados por splits | Reparación automática de saltos; el filtro de precio usa el precio pagado por el insider (sin ajustar). |
 | Costos subestimados | Modelo conservador; se reporta el costo medio por señal. |

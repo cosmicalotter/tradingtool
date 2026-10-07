@@ -29,6 +29,9 @@ from tradingtool.config import AppConfig
 from tradingtool.risk.costs import estimate_roundtrip_cost
 
 REFERENCE_POSITION_USD = 1_000.0  # tamaño de referencia para estimar costos por señal
+# Prueba de robustez (Shumway 1997): a las señales que dejaron de cotizar se les resta 30%,
+# como si el deslistado hubiera sido por mal desempeño (conservador: algunas son fusiones).
+DELISTING_PENALTY = 0.30
 
 
 def load_outcomes(
@@ -175,6 +178,11 @@ def evaluate(
         group_stats("pasan · con ejecutivo", passed[passed["officer"]]),
         group_stats("pasan · solo directores", passed[~passed["officer"]]),
     ]
+    trunc = passed["status"] == "truncated"
+    if trunc.any():
+        stressed = passed.copy()
+        stressed.loc[trunc, "net_excess"] = stressed.loc[trunc, "net_excess"] - DELISTING_PENALTY
+        rep.groups.append(group_stats("pasan · deslistadas con -30% (robustez)", stressed))
     if "net_excess2" in passed.columns and passed["net_excess2"].notna().any():
         # Secundario: exceso contra empresas pequeñas (IWM), para separar "prima de tamaño".
         rep.groups.append(

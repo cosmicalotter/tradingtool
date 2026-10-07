@@ -127,3 +127,12 @@ def test_secondary_benchmark_group(con):
     rep = evaluate(con, AppConfig(), 63, "backtest")
     g = {x.name: x for x in rep.groups}["pasan · exceso vs IWM (tamaño)"]
     assert g.mean_net_excess < 0.01  # el exceso desaparece contra IWM
+
+
+def test_delisting_robustness_group(con):
+    _seed(con, excess=0.03)
+    con.execute("UPDATE outcomes SET status = 'truncated' WHERE signal_id LIKE 's1-%'")
+    rep = evaluate(con, AppConfig(), 63, "backtest")
+    g = {x.name: x for x in rep.groups}
+    stressed = g["pasan · deslistadas con -30% (robustez)"]
+    assert stressed.mean_net_excess < g["pasan filtros (principal)"].mean_net_excess
