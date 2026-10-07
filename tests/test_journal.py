@@ -147,3 +147,11 @@ def test_outcome_summary_groups(con):
     s = j.outcome_summary(con, 5).set_index("grupo")
     assert set(s.index) == {"aprobada", "rechazada", "bloqueada", "sin decisión"}
     assert (s["n"] == 1).all()
+
+
+def test_no_outcome_when_first_bar_is_far_after_signal(con):
+    dates = _bdays(date(2026, 3, 1), 40)
+    _insert_prices(con, "ACME", dates)
+    # señal en enero, pero la primera barra es de marzo: entrada falsa -> no se mide
+    j.record_signals(con, None, [_signal(as_of=date(2026, 1, 15))])
+    assert j.update_outcomes(con, horizons=(5,), benchmark_ticker=None) == 0

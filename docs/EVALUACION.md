@@ -105,3 +105,5 @@ Pasar a dinero real exige además los criterios de la Fase 4 del plan (`docs/00-
 | Costos subestimados | Modelo conservador; se reporta el costo medio por señal. |
 | Narrativa | El LLM no participa en v1. Si se agrega, se evalúa con A/B y placebo, y solo con eventos posteriores a su fecha de corte de entrenamiento. |
 | Filings conjuntos | La identidad del insider es el primer reporting owner; el rol es el de cualquiera de los dueños del filing. |
+| Benchmark que no controla tamaño | Las compras de insiders se concentran en empresas pequeñas, así que un exceso sobre SPY podría ser solo "prima de tamaño". Pendiente: reportar también contra IWM (Russell 2000) como análisis secundario antes de pasar a dinero real. |
+| Señales superpuestas | Muchas señales comparten meses; por eso el t se calcula sobre promedios mensuales y no por señal. |

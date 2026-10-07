@@ -406,7 +406,7 @@ def historico(
     desde: Annotated[str, typer.Option(help="Fecha inicial (AAAA-MM-DD)")] = "2019-01-01",
     hasta: Annotated[str, typer.Option(help="Fecha final (AAAA-MM-DD)")] = "2025-09-30",
     abrir_reserva: Annotated[
-        bool, typer.Option(help="Permite usar el periodo de reserva (desde 2025-10-01). Queda registrado.")
+        bool, typer.Option(help="Usa el periodo de reserva (desde 2025-10-01). Queda registrado.")
     ] = False,
 ) -> None:
     """Reconstruye las señales históricas (origen 'backtest') con las reglas congeladas."""

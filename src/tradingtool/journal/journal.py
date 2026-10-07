@@ -33,6 +33,9 @@ VALID_DECISIONS = ("approve", "reject", "skip")
 # Si el último dato del ticker es N días hábiles más viejo que el último dato del mercado,
 # se asume que dejó de cotizar.
 STALE_BARS_FOR_TRUNCATION = 10
+# La entrada debe ocurrir poco después de la señal. Si la primera barra disponible está más
+# lejos (cambio de ticker, hueco de datos), no se mide: sería una entrada falsa.
+MAX_ENTRY_DELAY_DAYS = 10
 
 
 def _now() -> datetime:
@@ -216,6 +219,8 @@ def _compute_one(
     if future.empty:
         return None
     entry_bar = future.iloc[0]
+    if (entry_bar["date"] - as_of).days > MAX_ENTRY_DELAY_DAYS:
+        return None
     entry_price = float(entry_bar["open"])
     if not entry_price or entry_price <= 0:
         return None

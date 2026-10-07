@@ -275,3 +275,21 @@ def test_repair_split_jumps(con):
     )
     assert repaired == ["SPL"]
     assert load_bars(con, "SPL")["close"].eq(50).all()
+
+
+def test_holidays_are_remembered(con):
+    days = business_days(
+        date(2025, 11, 26), date(2025, 11, 28)
+    )  # mié, jue (Acción de Gracias), vie
+    rows = [
+        {"ticker": f"T{i}", "date": d, "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1}
+        for d in days
+        if d != date(2025, 11, 27)
+        for i in range(600)
+    ]
+    src = FakeSource(pd.DataFrame(rows))
+    sync_market(con, src, days[0], days[-1])
+    assert market_days_missing(con, days[0], days[-1]) == []
+    src.calls.clear()
+    sync_market(con, src, days[0], days[-1])
+    assert src.calls == []

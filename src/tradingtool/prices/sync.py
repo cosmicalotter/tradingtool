@@ -80,10 +80,22 @@ def sync_tickers(
     return stats
 
 
+NO_MARKET_PREFIX = "sin_mercado:"
+
+
 def market_days_missing(
     con: duckdb.DuckDBPyConnection, start: date, end: date, min_tickers: int = 500
 ) -> list[date]:
-    """Días hábiles para los que la caché no tiene una foto completa del mercado."""
+    """Días hábiles para los que la caché no tiene una foto completa del mercado.
+
+    Excluye los días ya consultados que resultaron sin mercado (feriados de EE. UU.).
+    """
+    holidays = {
+        r[0][len(NO_MARKET_PREFIX) :]
+        for r in con.execute(
+            "SELECT key FROM meta WHERE key LIKE ?", [NO_MARKET_PREFIX + "%"]
+        ).fetchall()
+    }
     have = {
         d
         for d, n in con.execute(
@@ -92,7 +104,7 @@ def market_days_missing(
         ).fetchall()
         if n >= min_tickers
     }
-    return [d for d in business_days(start, end) if d not in have]
+    return [d for d in business_days(start, end) if d not in have and str(d) not in holidays]
 
 
 def sync_market(
@@ -115,6 +127,12 @@ def sync_market(
             stats.errors.append(f"{d}: {exc}")
             log.warning("Mercado %s: %s", d, exc)
             continue
+        if df.empty and d < date.today():
+            # Día hábil sin datos de mercado: feriado. Se recuerda para no volver a pedirlo.
+            con.execute(
+                "INSERT INTO meta VALUES (?, ?) ON CONFLICT (key) DO NOTHING",
+                [f"{NO_MARKET_PREFIX}{d}", source.name],
+            )
         stats.rows_written += store_bars(con, df, source.name, source.adjusted)
         stats.days_fetched += 1
         if i % 20 == 0:
