@@ -15,7 +15,17 @@ from pathlib import Path
 
 import duckdb
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+
+# Columnas agregadas después de la versión 1: se crean en bases existentes (idempotente).
+MIGRATIONS = (
+    "ALTER TABLE insider_filings ADD COLUMN IF NOT EXISTS mentions_10b5_1 BOOLEAN",
+    "ALTER TABLE signals ADD COLUMN IF NOT EXISTS origin VARCHAR DEFAULT 'live'",
+    "ALTER TABLE outcomes ADD COLUMN IF NOT EXISTS bench2_ret DOUBLE",
+    "ALTER TABLE outcomes ADD COLUMN IF NOT EXISTS excess2_ret DOUBLE",
+    "ALTER TABLE outcomes ADD COLUMN IF NOT EXISTS bars_held INTEGER",
+    "ALTER TABLE outcomes ADD COLUMN IF NOT EXISTS status VARCHAR DEFAULT 'complete'",
+)
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -152,6 +162,8 @@ CREATE INDEX IF NOT EXISTS idx_signals_date ON signals (as_of_date);
 
 def init_schema(con: duckdb.DuckDBPyConnection) -> None:
     con.execute(SCHEMA_SQL)
+    for stmt in MIGRATIONS:
+        con.execute(stmt)
     con.execute(
         "INSERT INTO meta VALUES ('schema_version', ?) "
         "ON CONFLICT (key) DO UPDATE SET value = excluded.value",

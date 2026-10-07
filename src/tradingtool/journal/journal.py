@@ -30,6 +30,7 @@ from tradingtool.ids import git_commit, new_run_id
 from tradingtool.models import Signal
 
 VALID_DECISIONS = ("approve", "reject", "skip")
+DEDUPE_SECONDS = 10
 # Si el último dato del ticker es N días hábiles más viejo que el último dato del mercado,
 # se asume que dejó de cotizar.
 STALE_BARS_FOR_TRUNCATION = 10
@@ -75,8 +76,12 @@ def finish_run(
 def record_signals(
     con: duckdb.DuckDBPyConnection, run_id: str | None, signals: Iterable[Signal]
 ) -> int:
-    """Guarda señales. Si una señal (mismo signal_id) ya existe, actualiza su contenido pero
-    conserva la fecha de creación original y sus decisiones."""
+    """Guarda señales. Si una señal (mismo signal_id) ya existe, actualiza su contenido y
+    conserva la fecha de creación original.
+
+    Excepción: si la señal YA TIENE una decisión, queda congelada tal como la viste al decidir
+    (re-ejecutar el screener no la reescribe).
+    """
     rows = [
         {
             "signal_id": s.signal_id,
@@ -96,6 +101,18 @@ def record_signals(
         }
         for s in signals
     ]
+    if not rows:
+        return 0
+    ids = [r["signal_id"] for r in rows]
+    frozen = {
+        r[0]
+        for r in con.execute(
+            "SELECT DISTINCT signal_id FROM decisions "
+            "WHERE signal_id IN (SELECT unnest(?::VARCHAR[]))",
+            [ids],
+        ).fetchall()
+    }
+    rows = [r for r in rows if r["signal_id"] not in frozen]
     if not rows:
         return 0
     df = pd.DataFrame(rows)
@@ -178,12 +195,28 @@ def record_decision(
     planned_entry: float | None = None,
     planned_stop: float | None = None,
 ) -> str:
-    """Registra una decisión. NO envía órdenes: solo escribe en el diario."""
+    """Registra una decisión. NO envía órdenes: solo escribe en el diario.
+
+    Idempotente ante dobles clics: si la última decisión de la señal es idéntica y se registró
+    hace menos de ``DEDUPE_SECONDS``, devuelve esa misma en vez de duplicarla.
+    """
     if decision not in VALID_DECISIONS:
         raise ValueError(f"decisión inválida {decision!r}; usa una de {VALID_DECISIONS}")
     exists = con.execute("SELECT 1 FROM signals WHERE signal_id = ?", [signal_id]).fetchone()
     if not exists:
         raise KeyError(f"No existe la señal {signal_id}")
+    now = _now()
+    last = con.execute(
+        "SELECT decision_id, decision, reason, planned_shares, planned_entry, planned_stop, "
+        "decided_at FROM decisions WHERE signal_id = ? ORDER BY decided_at DESC LIMIT 1",
+        [signal_id],
+    ).fetchone()
+    if (
+        last is not None
+        and tuple(last[1:6]) == (decision, reason, planned_shares, planned_entry, planned_stop)
+        and (now - last[6]).total_seconds() < DEDUPE_SECONDS
+    ):
+        return str(last[0])
     decision_id = uuid.uuid4().hex
     con.execute(
         "INSERT INTO decisions (decision_id, signal_id, decision, reason, decided_by, decided_at, "
@@ -194,7 +227,7 @@ def record_decision(
             decision,
             reason,
             decided_by,
-            _now(),
+            now,
             planned_shares,
             planned_entry,
             planned_stop,

@@ -66,14 +66,31 @@ def test_run_lifecycle(con):
     assert row == ("screen", "ok", "nota", "h")
 
 
-def test_record_signals_upsert_keeps_decisions(con):
+def test_record_signals_upsert_updates_undecided_signals(con):
+    j.record_signals(con, "r1", [_signal()])
+    j.record_signals(con, "r2", [_signal(passed=False)])  # re-ejecución sin decisión
+    df = j.list_signals(con)
+    assert len(df) == 1 and df.loc[0, "run_id"] == "r2" and not df.loc[0, "passed"]
+
+
+def test_decided_signal_is_frozen(con):
     j.record_signals(con, "r1", [_signal()])
     j.record_decision(con, "s1", "approve", "me gusta")
-    j.record_signals(con, "r2", [_signal()])  # re-ejecución
+    j.record_signals(con, "r2", [_signal(passed=False)])  # re-ejecución tras decidir
     df = j.list_signals(con)
     assert len(df) == 1
     assert df.loc[0, "decision"] == "approve"
-    assert df.loc[0, "run_id"] == "r2"
+    assert df.loc[0, "run_id"] == "r1" and df.loc[0, "passed"]  # tal como se vio al decidir
+
+
+def test_double_click_does_not_duplicate_decision(con):
+    j.record_signals(con, None, [_signal()])
+    a = j.record_decision(con, "s1", "approve", "ok", planned_shares=3)
+    b = j.record_decision(con, "s1", "approve", "ok", planned_shares=3)
+    assert a == b
+    assert con.execute("select count(*) from decisions").fetchone()[0] == 1
+    c = j.record_decision(con, "s1", "reject", "cambié de opinión")
+    assert c != a
 
 
 def test_decision_validation(con):

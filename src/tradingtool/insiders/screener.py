@@ -480,6 +480,8 @@ def _build_signal(
         "any_officer": any(bool(flag(r["is_officer"])) for r in good),
         "any_director": any(bool(flag(r["is_director"])) for r in good),
         "opportunistic_count": sum(1 for r in good if r.get("clase") == OPPORTUNISTIC),
+        # Rutinarios del evento (todos quedan excluidos en el modo por defecto, por eso se
+        # cuentan sobre todos los insiders del evento y no solo sobre los válidos).
         "routine_count": sum(1 for r in ev_ins if r.get("clase") == ROUTINE),
         "unclassified_count": sum(1 for r in good if r.get("clase") == UNCLASSIFIED),
         "pct_increase_max": (
@@ -515,7 +517,8 @@ def _build_signal(
         adv = avg_dollar_volume(bars, cfg.universe.adv_window_days)
         feats["adv20"] = None if adv is None else round(adv, 2)
         a = atr(bars, app_cfg.risk.atr_period)
-        feats["atr14"] = None if a is None else round(a, 4)
+        feats["atr14"] = None if a is None else round(a, 4)  # nombre histórico; ver atr_period
+        feats["atr_period"] = app_cfg.risk.atr_period
     else:
         feats.update({"price_last": None, "price_last_date": None, "adv20": None, "atr14": None})
     if good:
@@ -546,8 +549,17 @@ def _build_signal(
             reasons.append(f"Aumento de participación hasta {feats['pct_increase_max']:.0%}")
     all_reasons = tuple(reasons + [f"Bloqueada: {b}" for b in blockers])
     score = _score(cfg, feats) if good else 0.0
+    # El hash de la configuración forma parte del ID: si alguien edita la config sin cambiar
+    # strategy_version, las señales nuevas no se mezclan con las decisiones de las viejas.
     signal_id = stable_hash(
-        {"v": cfg.strategy_version, "cik": issuer_cik, "d": fdate, "o": origin}, length=20
+        {
+            "v": cfg.strategy_version,
+            "h": app_cfg.screener_hash(),
+            "cik": issuer_cik,
+            "d": fdate,
+            "o": origin,
+        },
+        length=20,
     )
     return Signal(
         signal_id=signal_id,

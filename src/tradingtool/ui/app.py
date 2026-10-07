@@ -130,7 +130,8 @@ def sizing_inputs(
     )
     risk_pct = c2.number_input(
         "Riesgo por operación (%)",
-        min_value=0.01,
+        # La config admite valores > 0; si es menor que 0.01 la casilla no debe fallar.
+        min_value=min(0.01, float(cfg.risk.risk_per_trade_pct)),
         max_value=2.0,
         value=float(cfg.risk.risk_per_trade_pct),
         step=0.05,
@@ -227,10 +228,13 @@ def _filter_search(df: pd.DataFrame, text: str) -> pd.DataFrame:
 def ideas_filters(last: date) -> tuple[date, date, bool, str]:
     c1, c2, c3, c4 = st.columns([1, 1, 1.2, 1.6])
     default_start = last - timedelta(days=DEFAULT_RANGE_DAYS)
+    # Las claves llevan la última fecha con ideas: si 'tt diario' trae ideas nuevas mientras
+    # el panel está abierto, el rango vuelve a incluirlas (en vez de quedarse en el viejo).
+    suffix = last.isoformat()
     start = c1.date_input(
-        "Desde", value=default_start, key="ideas_desde", format=DATE_WIDGET_FORMAT
+        "Desde", value=default_start, key=f"ideas_desde_{suffix}", format=DATE_WIDGET_FORMAT
     )
-    end = c2.date_input("Hasta", value=last, key="ideas_hasta", format=DATE_WIDGET_FORMAT)
+    end = c2.date_input("Hasta", value=last, key=f"ideas_hasta_{suffix}", format=DATE_WIDGET_FORMAT)
     start = _date_or_default(start, default_start)
     end = _date_or_default(end, last)
     if start > end:
