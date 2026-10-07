@@ -353,3 +353,28 @@ def test_max_filing_lag_configurable(con):
 def test_candidate_tickers(con):
     upsert_filings(con, [_filing(), _filing(issuer="0000000200", ticker="BETA", code="S")])
     assert candidate_tickers(con, date(2026, 3, 1), date(2026, 3, 31)) == ["ACME"]
+
+
+def test_private_placement_price_far_from_market_is_blocked(con):
+    # el insider "compra" a 30 cuando el mercado cerró a 20: posible colocación privada
+    upsert_filings(con, [_filing(price=30.0)])
+    _prices(con, close=20.0)
+    s = _one(con)
+    assert not s.passed
+    assert any("lejos del precio de mercado" in r for r in s.reasons)
+    assert s.features["insider_price_vs_market"] == pytest.approx(0.5)
+
+
+def test_scoring_ignores_purchase_size(con):
+    # evidencia: comprar más no implica mejor retorno -> mismo puntaje con 10x el monto
+    upsert_filings(
+        con,
+        [
+            _filing(shares=1000.0, owned_after=11000.0),
+            _filing(issuer="0000000200", ticker="BETA", shares=10000.0, owned_after=110000.0),
+        ],
+    )
+    _prices(con)
+    _prices(con, ticker="BETA")
+    s = {x.ticker: x for x in screen(con, date(2026, 3, 10), date(2026, 3, 10), AppConfig())}
+    assert s["ACME"].score == pytest.approx(s["BETA"].score)

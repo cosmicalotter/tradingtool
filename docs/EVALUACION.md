@@ -36,13 +36,35 @@ Todas se fijaron a priori a partir de la literatura. **Ninguna se optimizó.**
 | Roles | Directivos y directores. Se excluyen los dueños de más del 10% sin cargo | Los dueños >10% sin cargo suelen ser fondos con otros motivos |
 | Clasificación | Se **excluyen los rutinarios** (mismo mes calendario en cada uno de los 3 años previos) | Cohen-Malloy-Pomorski |
 | Enmiendas (4/A) | Excluidas | Evitar contar doble |
-| Precio mínimo | US$2, el precio pagado por el insider | Evitar *penny stocks* |
+| Precio mínimo | US$5, el precio pagado por el insider | Corte académico usual; evita microcaps extremas |
+| Compras privadas | Se excluye si el precio pagado está a más del 25% del cierre de mercado del día de la compra | El código P también incluye colocaciones privadas del emisor |
 | Liquidez | Volumen promedio de 20 días ≥ US$250.000/día | Poder entrar y salir; costos razonables |
 | Evento | Todas las compras válidas de una empresa con la misma fecha de presentación | — |
 | Entrada (medición) | **Apertura del día hábil siguiente** a la fecha de presentación | Sin mirar al futuro |
 | Horizonte principal | **63 días hábiles** (~3 meses) | Secundarios: 5, 10, 21 y 126 |
 | Benchmark | SPY, en la misma ventana (principal); IWM como secundario para controlar el tamaño | A nivel de portafolio se comparará contra el ETF UCITS núcleo |
 | Costos | Modelo IBKR Pro tiered + spread/deslizamiento según liquidez (50/25/10/5 pb por lado) para una posición de referencia de US$1.000 | Conservador a propósito |
+
+### 2.1 Evidencia revisada y ajustes hechos ANTES de ver datos (2026-10-07)
+
+Una revisión de la literatura, solo con resúmenes y fuentes secundarias porque los PDF estaban bloqueados, encontró:
+
+- **El famoso "82 pb/mes" de Cohen-Malloy-Pomorski es de un portafolio largo-corto** (compras oportunistas menos ventas oportunistas), no de solo comprar. No se pudo verificar el alfa de solo la pata compradora.
+- **Decaimiento:** la única réplica posterior a 2008 encontrada (una tesis de maestría, confianza baja) reporta un poder predictivo 60–70% menor (≈0,3–0,4% mensual).
+- **Desde la ley SOX de 2002**, buena parte de la reacción ocurre al publicarse el Form 4 (1–2% en 2–3 días). Quien entra al día siguiente se pierde una parte.
+- **El tamaño de la compra no ayuda:** el retorno porcentual baja con el tamaño (Cziraki y Gider, 2021).
+- **Roles:** tras SOX, los altos ejecutivos no superan a los directores. Los dueños de más del 10% sin cargo no tienen retorno anormal.
+- **Lo mejor documentado:** compras **en cluster**, es decir, varios insiders en 30 días (más de 2% al mes siguiente según Alldredge y Blank, 2019).
+
+**Ajustes en consecuencia,** antes de cualquier backtest:
+
+- Precio mínimo de US$2 a **US$5**.
+- Filtro de **compras privadas**.
+- En el puntaje (solo ordena ideas), **peso 0 al tamaño de la compra y al cargo ejecutivo**; el cluster y el aumento de participación conservan su peso.
+
+**Análisis secundarios pre-registrados:** solo oportunistas, cluster de ≥2 insiders en 30 días, desglose por rol, periodo desde abril de 2023 (llegada de la casilla 10b5-1) y exceso contra IWM.
+
+**Expectativa realista:** si el efecto sobrevive, será pequeño (décimas de punto porcentual al mes) y concentrado en empresas pequeñas, justo donde los costos son mayores. Que el veredicto salga NO PASA es un desenlace plausible y valioso.
 
 ## 3. Garantías contra la mirada al futuro (*look-ahead*)
 
@@ -51,7 +73,7 @@ Cada una está verificada por un test automático:
 - Toda señal se ancla en `filing_date`, el día en que la información fue pública, nunca en la fecha de la transacción.
 - La clasificación rutinario/oportunista usa solo filings presentados **antes del 1 de enero** del año del evento.
 - Liquidez, ATR y precio de referencia usan solo barras con fecha ≤ `filing_date`.
-- Los resultados se miden desde la apertura del día hábil **siguiente**.
+- Los resultados se miden desde la apertura del día hábil **siguiente** a la fecha de presentación. Es conservador (aunque el filing llegue antes de la apertura, se espera al día siguiente) y realista para quien corre la rutina una vez al día.
 - Si una acción deja de cotizar (deslistada), el resultado se cierra con su último precio y se marca `truncated`. No se descarta, para evitar el sesgo de supervivencia.
 
 ## 4. Criterio principal (pre-registrado)

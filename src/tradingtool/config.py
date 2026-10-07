@@ -23,9 +23,12 @@ class _Strict(BaseModel):
 
 
 class UniverseCfg(_Strict):
-    min_price: float = Field(2.0, ge=0)
+    min_price: float = Field(5.0, ge=0)  # corte académico usual (evita microcaps extremas)
     min_avg_dollar_volume: float = Field(250_000, ge=0)  # promedio de N días, USD
     adv_window_days: int = Field(20, ge=1)
+    # Código P también cubre compras privadas (colocaciones del emisor): si el precio pagado se
+    # aleja más de este % del cierre de mercado del día de la compra, no es compra en mercado.
+    max_insider_price_deviation: float = Field(0.25, gt=0)
 
 
 class TransactionCfg(_Strict):
@@ -60,9 +63,11 @@ class ClusterCfg(_Strict):
 
 
 class ScoringCfg(_Strict):
-    w_log_value: float = 1.0
+    # Evidencia: el retorno % NO crece con el tamaño de la compra (Cziraki y Gider 2021) y
+    # los altos ejecutivos no superan a los directores tras SOX: esos pesos quedan en 0.
+    w_log_value: float = 0.0
     w_cluster: float = 1.0
-    w_officer: float = 0.5
+    w_officer: float = 0.0
     w_ownership_increase: float = 1.0
     w_opportunistic: float = 0.5
 

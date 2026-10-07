@@ -4,9 +4,10 @@
 strategy_version: insider-v1
 
 universe:
-  min_price: 2.0                 # precio pagado por el insider (USD); evita "penny stocks"
+  min_price: 5.0                 # precio pagado por el insider (USD); corte académico usual
   min_avg_dollar_volume: 250000  # volumen promedio diario en USD (20 días) para poder operar
   adv_window_days: 20
+  max_insider_price_deviation: 0.25  # si paga >25% lejos del mercado: compra privada, no cuenta
 
 transactions:
   codes: [P]                     # P = compra en mercado abierto (la única con información)
@@ -33,9 +34,9 @@ cluster:
   min_insiders: 1                # el cluster suma puntaje; no es requisito
 
 scoring:                         # solo ordena ideas; no decide si una idea pasa
-  w_log_value: 1.0
-  w_cluster: 1.0
-  w_officer: 0.5
+  w_log_value: 0.0               # evidencia: compras más grandes NO rinden más en %
+  w_cluster: 1.0                 # varios insiders comprando: la señal mejor documentada
+  w_officer: 0.0                 # tras SOX, ejecutivos ≈ directores
   w_ownership_increase: 1.0
   w_opportunistic: 0.5
 

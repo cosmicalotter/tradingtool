@@ -509,6 +509,19 @@ def _build_signal(
             blockers.append(
                 f"Precio pagado US${px:,.2f} menor al mínimo US${cfg.universe.min_price:,.2f}"
             )
+        # ¿Compra privada? Precio pagado vs. cierre de mercado del día de la última compra.
+        if px is not None and tx_dates:
+            tx_bars = prices.upto(ticker, max(tx_dates))
+            if tx_bars is not None:
+                mkt = float(tx_bars.iloc[-1]["close"])
+                if mkt > 0:
+                    dev = abs(px / mkt - 1.0)
+                    feats["insider_price_vs_market"] = round(px / mkt - 1.0, 4)
+                    if dev > cfg.universe.max_insider_price_deviation:
+                        blockers.append(
+                            f"Precio pagado {dev:.0%} lejos del precio de mercado "
+                            "(posible compra privada, no en mercado abierto)"
+                        )
     bars = prices.upto(ticker, fdate)
     if bars is not None:
         last = bars.iloc[-1]
