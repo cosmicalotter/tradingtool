@@ -315,3 +315,18 @@ def test_real_filing_without_10b5_mention(fixtures_dir):
         filing_date=date(2026, 6, 24),
     )
     assert f.mentions_10b5_1 is False
+
+
+def test_sync_day_treats_403_index_as_missing_and_skips_weekends(con):
+    hits = []
+
+    def handler(request):
+        hits.append(str(request.url))
+        return httpx.Response(403)
+
+    client = EdgarClient(UA, transport=httpx.MockTransport(handler), sleep=lambda s: None)
+    st = sync_form4_day(client, con, date(2026, 10, 2))  # viernes: 403 = sin índice
+    assert not st.index_found
+    hits.clear()
+    st = sync_form4_day(client, con, date(2026, 10, 3))  # sábado: ni se consulta
+    assert not st.index_found and hits == []

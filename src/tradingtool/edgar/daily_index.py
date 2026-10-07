@@ -15,7 +15,7 @@ from datetime import date
 
 import duckdb
 
-from tradingtool.edgar.client import SEC_ARCHIVES, EdgarClient
+from tradingtool.edgar.client import SEC_ARCHIVES, EdgarClient, EdgarHTTPError
 from tradingtool.edgar.form4 import FORM4_TYPES, Form4ParseError, parse_submission_text
 from tradingtool.insiders.store import upsert_filings
 from tradingtool.models import Form4Filing
@@ -110,7 +110,17 @@ def sync_form4_day(
 ) -> SyncStats:
     """Descarga y guarda todos los Form 4 presentados en ``day``. Idempotente."""
     stats = SyncStats(day=day)
-    text = client.get_text(daily_index_url(day), allow_404=True)
+    if day.weekday() >= 5:  # sábado/domingo: la SEC no publica índice
+        return stats
+    try:
+        text = client.get_text(daily_index_url(day), allow_404=True)
+    except EdgarHTTPError as exc:
+        # La SEC responde 403 (no 404) cuando un archivo de Archives no existe, p. ej. el
+        # índice de un feriado o de un día aún no publicado. Se trata como "sin índice".
+        if exc.status != 403:
+            raise
+        log.info("Índice de %s no disponible (403): feriado o aún no publicado", day)
+        text = None
     if text is None:
         log.info("Sin índice diario para %s (fin de semana, feriado o aún no publicado)", day)
         return stats

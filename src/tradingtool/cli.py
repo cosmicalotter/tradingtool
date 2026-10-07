@@ -232,7 +232,11 @@ def _sec_diario(settings: Settings, days: list[date]) -> None:
     client = _edgar(settings)
     try:
         for d in days:
-            st = sync_form4_day(client, con, d)
+            try:
+                st = sync_form4_day(client, con, d)
+            except Exception as exc:
+                console.print(f"[yellow]{d}: no se pudo descargar ({exc}). Se reintenta mañana.[/]")
+                continue
             if not st.index_found:
                 console.print(f"{d}: sin índice (fin de semana, feriado o aún no publicado)")
                 continue
@@ -649,7 +653,10 @@ def panel(
         "127.0.0.1",
         "--browser.gatherUsageStats",
         "false",
+        "--server.headless",  # evita la pregunta de correo de Streamlit al arrancar
+        "true",
     ]
+    console.print(f"Panel en [bold]http://127.0.0.1:{puerto}[/bold] (Ctrl+C para cerrar)")
     raise typer.Exit(subprocess.call(cmd))  # noqa: S603
 
 
