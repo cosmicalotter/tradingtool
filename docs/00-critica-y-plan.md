@@ -1,8 +1,28 @@
 # Panel de apoyo a decisiones de trading (IBKR): crítica, investigación y plan
 
-**Versión:** v0, borrador para tu aprobación · **Fecha:** 2026-10-07 · **Estado:** sin código. Hay que aprobar esto antes de construir.
+**Versión:** v1, aprobada con ajustes (ver "Actualización v1") · **Fecha:** 2026-10-07 · **Estado:** aprobado; primera entrega construida (ver README).
 
 > Convención del documento: **[V]** = dato que verifiqué en fuentes en octubre de 2026 (las fuentes están al final). **[E]** = estimación o supuesto mío, con el razonamiento a la vista. **[C]** = hay que confirmarlo con un contador o directamente con IBKR. Nada de esto es asesoría financiera ni tributaria.
+
+---
+
+## Actualización v1: decisiones tras tus respuestas (2026-10-07)
+
+| Tema | Tu respuesta | Decisión |
+|---|---|---|
+| Aporte | ~US$400/mes; quizá una mudanza en ~10 meses | **El dinero de la mudanza NO va a acciones.** Una caída de 10–20% en 10 meses es perfectamente posible. Estima el costo de la mudanza y ve apartando esa parte en una cuenta en COP líquida y de alto rendimiento (sin costo cambiario). El resto va al ETF. Si al final no te mudas, ese colchón pasa al ETF. |
+| Fondeo | IBKR abierta; ARQ cobra US$3 fijos por envío | Enviar y comprar **cada 2–3 meses** baja el costo de ~1,2% a ~0,4–0,6% por compra (ver `docs/COSTOS.md`). Verifica también el spread de ARQ frente a la TRM. |
+| Computador | Linux (CachyOS / Fedora) | Norgate descartado (solo funciona en Windows). Precios: plan gratuito de Massive/Tiingo. IB Gateway tiene instalador para Linux. |
+| Presupuesto | Lo mínimo posible | **US$0/mes:** datos de la SEC gratis, precios con plan gratuito, sin LLM en v1, sin VPS. El único costo opcional es un mes de historia larga de precios, y solo con tu aprobación. |
+| Núcleo | ETF irlandés OK | Global (VWRA/FWRA/SSAC) o S&P 500 (CSPX). Nadie sabe cuál rendirá más. El global diversifica más; CSPX es más barato y concentrado en EE. UU. Recomendación por defecto: **un ETF global de acumulación**. Valídalo con el contador. |
+| Objetivo | Generar ingresos, acumular y aprender | Herramienta enfocada en **medir con honestidad** si `insider-v1` tiene edge después de costos, antes de arriesgar dinero. |
+| Estrategia | Compras de insiders | `insider-v1` pre-registrada en `docs/EVALUACION.md` |
+| Idioma | Español | Interfaz, CLI y documentos en español |
+
+**Cambios al plan original:**
+
+- La **Fase 2 se adelantó** para la estrategia de insiders: la reconstrucción histórica y la evaluación estadística ya están en la primera entrega, porque es lo que decide si vale la pena seguir.
+- El módulo LLM pasa a "opcional y medido con A/B": la estrategia funciona con reglas, sin LLM.
 
 ---
 

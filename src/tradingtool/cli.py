@@ -36,8 +36,8 @@ log = logging.getLogger("tradingtool")
 # Periodos pre-registrados para la validación histórica (ver docs/EVALUACION.md).
 PERIODS = {
     "diseno": (date(2009, 1, 1), date(2018, 12, 31)),
-    "validacion": (date(2019, 1, 1), date(2022, 12, 31)),
-    "reserva": (date(2023, 1, 1), date(2100, 1, 1)),
+    "validacion": (date(2019, 1, 1), date(2025, 9, 30)),
+    "reserva": (date(2025, 10, 1), date(2100, 1, 1)),
 }
 RESERVE_FLAG = "reserva_abierta"
 
@@ -164,7 +164,7 @@ def revisar(
             row("Resultados medidos", None if n_o == 0 else True, f"{n_o}")
             reserve = con.execute("SELECT value FROM meta WHERE key = ?", [RESERVE_FLAG]).fetchone()
             row(
-                "Periodo de reserva (2023+)",
+                "Periodo de reserva (desde 2025-10-01)",
                 None if reserve else True,
                 f"ABIERTO el {reserve[0]}" if reserve else "cerrado (bien)",
             )
@@ -404,21 +404,21 @@ def diario(
 @app.command()
 def historico(
     desde: Annotated[str, typer.Option(help="Fecha inicial (AAAA-MM-DD)")] = "2019-01-01",
-    hasta: Annotated[str, typer.Option(help="Fecha final (AAAA-MM-DD)")] = "2022-12-31",
+    hasta: Annotated[str, typer.Option(help="Fecha final (AAAA-MM-DD)")] = "2025-09-30",
     abrir_reserva: Annotated[
-        bool, typer.Option(help="Permite usar el periodo de reserva (2023+). Queda registrado.")
+        bool, typer.Option(help="Permite usar el periodo de reserva (desde 2025-10-01). Queda registrado.")
     ] = False,
 ) -> None:
     """Reconstruye las señales históricas (origen 'backtest') con las reglas congeladas."""
     settings, cfg = _ctx()
-    start, end = _parse_date(desde, date(2019, 1, 1)), _parse_date(hasta, date(2022, 12, 31))
+    start, end = _parse_date(desde, date(2019, 1, 1)), _parse_date(hasta, date(2025, 9, 30))
     reserve_start = PERIODS["reserva"][0]
     con = connect(settings.db_path)
     try:
         if end >= reserve_start:
             if not abrir_reserva:
                 console.print(
-                    "[red]El periodo de reserva (2023 en adelante) está bloqueado.[/red] "
+                    "[red]El periodo de reserva (desde 2025-10-01) está bloqueado.[/red] "
                     "Úsalo UNA sola vez, al final, con --abrir-reserva (queda registrado)."
                 )
                 raise typer.Exit(2)

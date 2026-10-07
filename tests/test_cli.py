@@ -109,14 +109,14 @@ def test_full_offline_pipeline(env):
 
 def test_reserve_period_is_locked(env):
     runner.invoke(app, ["iniciar"])
-    r = runner.invoke(app, ["historico", "--desde", "2023-01-01", "--hasta", "2023-12-31"])
+    r = runner.invoke(app, ["historico", "--desde", "2025-01-01", "--hasta", "2025-12-31"])
     assert r.exit_code == 2
     assert "reserva" in r.output
     con = connect(env / "tradingtool.duckdb")
     assert con.execute("select count(*) from meta where key='reserva_abierta'").fetchone()[0] == 0
     con.close()
     r = runner.invoke(
-        app, ["historico", "--desde", "2023-01-01", "--hasta", "2023-01-31", "--abrir-reserva"]
+        app, ["historico", "--desde", "2025-10-01", "--hasta", "2025-10-31", "--abrir-reserva"]
     )
     assert r.exit_code == 0, r.output
     con = connect(env / "tradingtool.duckdb")

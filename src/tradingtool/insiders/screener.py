@@ -18,9 +18,11 @@ Reglas para no mirar al futuro:
 
 from __future__ import annotations
 
+import bisect
 import math
 import re
 from collections import Counter
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any
@@ -125,7 +127,7 @@ def load_purchase_rows(
 # ----------------------------------------------------------------------------- reglas por fila
 
 
-def row_failures(row: pd.Series, cfg: ScreenerConfig) -> list[str]:
+def row_failures(row: Mapping[str, Any], cfg: ScreenerConfig) -> list[str]:
     """Razones por las que una transacción NO cuenta como compra válida (lista vacía = válida)."""
     tc = cfg.transactions
     roles = cfg.roles
@@ -219,8 +221,8 @@ class PriceContext:
         if not ticker or ticker not in self.bars:
             return None
         b = self.bars[ticker]
-        b = b[b["date"] <= day]
-        return b if not b.empty else None
+        n = bisect.bisect_right(b["date"].tolist(), day)  # barras con fecha <= day
+        return b.iloc[:n] if n > 0 else None
 
 
 # ----------------------------------------------------------------------------- screener
@@ -285,7 +287,7 @@ def screen(
     rows = load_purchase_rows(con, start - timedelta(days=window), end, cfg.transactions.codes)
     if rows.empty:
         return []
-    rows["failures"] = [row_failures(r, cfg) for _, r in rows.iterrows()]
+    rows["failures"] = [row_failures(r, cfg) for r in rows.to_dict("records")]
     rows["row_ok"] = rows["failures"].map(lambda f: not f)
     rows["value"] = rows["shares"] * rows["price_per_share"]
 
@@ -360,106 +362,139 @@ def screen(
     tickers = sorted({t for t in events["issuer_ticker"].dropna().unique()})
     prices = PriceContext.load(con, tickers, start - timedelta(days=PRICE_HISTORY_DAYS), end)
 
-    signals: list[Signal] = []
-    for (issuer_cik, fdate), ev in events.groupby(["issuer_cik", "filing_date"], sort=True):
-        signals.append(_build_signal(issuer_cik, fdate, ev, ins, prices, app_cfg, origin, window))
-    return signals
+    # Índices en listas de Python: mucho más rápido que filtrar DataFrames en cada evento.
+    ins_by_event: dict[tuple[str, date], list[dict[str, Any]]] = {}
+    ok_by_issuer: dict[str, list[tuple[date, str]]] = {}
+    if not ins.empty:
+        for r in ins.to_dict("records"):
+            ins_by_event.setdefault((r["issuer_cik"], r["filing_date"]), []).append(r)
+            if r["insider_ok"]:
+                ok_by_issuer.setdefault(r["issuer_cik"], []).append(
+                    (r["filing_date"], r["owner_cik"])
+                )
+    ev_rows: dict[tuple[str, date], list[dict[str, Any]]] = {}
+    cols = [
+        "issuer_cik",
+        "filing_date",
+        "issuer_ticker",
+        "issuer_name",
+        "failures",
+        "transaction_date",
+        "accession",
+    ]
+    for r in events[cols].to_dict("records"):
+        ev_rows.setdefault((r["issuer_cik"], r["filing_date"]), []).append(r)
+
+    return [
+        _build_signal(
+            issuer_cik,
+            fdate,
+            ev_rows[(issuer_cik, fdate)],
+            ins_by_event.get((issuer_cik, fdate), []),
+            ok_by_issuer.get(issuer_cik, []),
+            prices,
+            app_cfg,
+            origin,
+            window,
+        )
+        for issuer_cik, fdate in sorted(ev_rows)
+    ]
+
+
+def _valid_date(d: Any) -> bool:
+    return isinstance(d, date) and not (isinstance(d, float) and math.isnan(d))
 
 
 def _build_signal(
     issuer_cik: str,
     fdate: date,
-    ev: pd.DataFrame,
-    ins: pd.DataFrame,
+    ev: list[dict[str, Any]],
+    ev_ins: list[dict[str, Any]],
+    issuer_ok: list[tuple[date, str]],
     prices: PriceContext,
     app_cfg: AppConfig,
     origin: str,
     window: int,
 ) -> Signal:
+    """Construye la señal de un evento.
+
+    ``ev``: filas de compra del evento; ``ev_ins``: insiders del evento (agregados);
+    ``issuer_ok``: (fecha, insider) de compras válidas de la empresa, para el cluster.
+    """
     cfg = app_cfg.screener
-    ticker = next((t for t in ev["issuer_ticker"] if isinstance(t, str) and t), None)
-    name = next((n for n in ev["issuer_name"] if isinstance(n, str) and n), None)
+    ticker = next(
+        (
+            r["issuer_ticker"]
+            for r in ev
+            if isinstance(r["issuer_ticker"], str) and r["issuer_ticker"]
+        ),
+        None,
+    )
+    name = next(
+        (r["issuer_name"] for r in ev if isinstance(r["issuer_name"], str) and r["issuer_name"]),
+        None,
+    )
     reasons: list[str] = []
     blockers: list[str] = []
-
-    ev_ins = (
-        ins[(ins["issuer_cik"] == issuer_cik) & (ins["filing_date"] == fdate)]
-        if not ins.empty
-        else pd.DataFrame()
-    )
-    good = ev_ins[ev_ins["insider_ok"]] if not ev_ins.empty else pd.DataFrame()
+    good = [r for r in ev_ins if r["insider_ok"]]
 
     # Insiders distintos con compras válidas en la ventana del cluster (hasta esta fecha).
-    if not ins.empty:
-        win = ins[
-            (ins["issuer_cik"] == issuer_cik)
-            & (ins["filing_date"] <= fdate)
-            & (ins["filing_date"] > fdate - timedelta(days=window))
-            & ins["insider_ok"]
-        ]
-        n_window = int(win["owner_cik"].nunique())
-    else:
-        n_window = 0
+    lo = fdate - timedelta(days=window)
+    n_window = len({o for d, o in issuer_ok if lo < d <= fdate})
 
-    if good.empty:
-        row_reasons = Counter(r for fl in ev["failures"] for r in fl)
-        ins_reasons = (
-            Counter(r for fl in ev_ins["insider_failures"] for r in fl)
-            if not ev_ins.empty
-            else Counter()
-        )
-        for r, n in (row_reasons + ins_reasons).most_common():
+    if not good:
+        counts = Counter(x for r in ev for x in r["failures"])
+        counts.update(x for r in ev_ins for x in (r.get("insider_failures") or []))
+        for r, n in counts.most_common():
             blockers.append(f"{r} ({n})" if n > 1 else r)
         if not blockers:
             blockers.append("Ninguna compra válida")
 
-    total_value = float(good["value"].sum()) if not good.empty else 0.0
+    total_value = float(sum(r["value"] for r in good))
     insiders = []
-    if not ev_ins.empty:
-        for r in ev_ins.to_dict("records"):
-            pct = r.get("pct_increase")
-            insiders.append(
-                {
-                    "nombre": _str_or_none(r.get("owner_name")),
-                    "cik": r.get("owner_cik"),
-                    "cargo": _insider_label(r),
-                    "valor": round(float(r["value"]), 2),
-                    "acciones": float(r["shares"]),
-                    "aumento_participacion": (
-                        None if pct is None else (None if math.isinf(pct) else round(pct, 4))
-                    ),
-                    "posicion_nueva": bool(pct is not None and math.isinf(pct)),
-                    "clase": r.get("clase"),
-                    "valida": bool(r.get("insider_ok")),
-                    "motivos": list(r.get("insider_failures") or []),
-                }
-            )
-    pcts = [p for p in (good["pct_increase"] if not good.empty else []) if p is not None]
+    for r in ev_ins:
+        pct = r.get("pct_increase")
+        insiders.append(
+            {
+                "nombre": _str_or_none(r.get("owner_name")),
+                "cik": r.get("owner_cik"),
+                "cargo": _insider_label(r),
+                "valor": round(float(r["value"]), 2),
+                "acciones": float(r["shares"]),
+                "aumento_participacion": (
+                    None if pct is None else (None if math.isinf(pct) else round(pct, 4))
+                ),
+                "posicion_nueva": bool(pct is not None and math.isinf(pct)),
+                "clase": r.get("clase"),
+                "valida": bool(r.get("insider_ok")),
+                "motivos": list(r.get("insider_failures") or []),
+            }
+        )
+    pcts = [r["pct_increase"] for r in good if r.get("pct_increase") is not None]
+    tx_dates = [r["transaction_date"] for r in ev if _valid_date(r["transaction_date"])]
     feats: dict[str, Any] = {
-        "n_insiders": int(good["owner_cik"].nunique()) if not good.empty else 0,
+        "n_insiders": len({r["owner_cik"] for r in good}),
         "n_insiders_window": n_window,
         "total_value": round(total_value, 2),
-        "max_insider_value": round(float(good["value"].max()), 2) if not good.empty else 0.0,
-        "any_officer": bool(good["is_officer"].any()) if not good.empty else False,
-        "any_director": bool(good["is_director"].any()) if not good.empty else False,
-        "opportunistic_count": int((good["clase"] == OPPORTUNISTIC).sum()) if not good.empty else 0,
-        "routine_count": int((ev_ins["clase"] == ROUTINE).sum()) if not ev_ins.empty else 0,
-        "unclassified_count": int((good["clase"] == UNCLASSIFIED).sum()) if not good.empty else 0,
+        "max_insider_value": round(max((float(r["value"]) for r in good), default=0.0), 2),
+        "any_officer": any(bool(flag(r["is_officer"])) for r in good),
+        "any_director": any(bool(flag(r["is_director"])) for r in good),
+        "opportunistic_count": sum(1 for r in good if r.get("clase") == OPPORTUNISTIC),
+        "routine_count": sum(1 for r in ev_ins if r.get("clase") == ROUTINE),
+        "unclassified_count": sum(1 for r in good if r.get("clase") == UNCLASSIFIED),
         "pct_increase_max": (
             None if not pcts else (None if math.isinf(max(pcts)) else round(max(pcts), 4))
         ),
         "new_position": any(math.isinf(p) for p in pcts),
-        "filing_lag_max": int(max((fdate - d).days for d in ev["transaction_date"].dropna()))
-        if ev["transaction_date"].notna().any()
-        else None,
-        "insider_price_max": round(float(good["max_price"].max()), 4) if not good.empty else None,
+        "filing_lag_max": max(((fdate - d).days for d in tx_dates), default=None),
+        "insider_price_max": (round(max(float(r["max_price"]) for r in good), 4) if good else None),
         "insiders": insiders,
         "n_purchase_rows": len(ev),
-        "transaction_dates": sorted({str(d) for d in ev["transaction_date"].dropna()}),
+        "transaction_dates": sorted({str(d) for d in tx_dates}),
     }
 
     # Filtros a nivel de evento.
-    if good.shape[0] > 0:
+    if good:
         if ticker is None:
             blockers.append("La empresa no tiene ticker en el filing")
         if n_window < cfg.cluster.min_insiders:
@@ -483,7 +518,7 @@ def _build_signal(
         feats["atr14"] = None if a is None else round(a, 4)
     else:
         feats.update({"price_last": None, "price_last_date": None, "adv20": None, "atr14": None})
-    if good.shape[0] > 0:
+    if good:
         if bars is None:
             blockers.append("Sin datos de precio para validar la liquidez")
         elif feats["adv20"] is None:
@@ -495,7 +530,7 @@ def _build_signal(
             )
 
     passed = not blockers
-    if not good.empty:
+    if good:
         cargos = sorted({i["cargo"] for i in insiders if i["valida"]})
         reasons.append(
             f"{feats['n_insiders']} insider(s) compraron {_money(total_value)} "
@@ -510,8 +545,7 @@ def _build_signal(
         elif feats["pct_increase_max"] is not None:
             reasons.append(f"Aumento de participación hasta {feats['pct_increase_max']:.0%}")
     all_reasons = tuple(reasons + [f"Bloqueada: {b}" for b in blockers])
-    score = _score(cfg, feats) if not good.empty else 0.0
-    accessions = tuple(sorted(set(ev["accession"])))
+    score = _score(cfg, feats) if good else 0.0
     signal_id = stable_hash(
         {"v": cfg.strategy_version, "cik": issuer_cik, "d": fdate, "o": origin}, length=20
     )
@@ -527,7 +561,7 @@ def _build_signal(
         passed=passed,
         reasons=all_reasons,
         features=feats,
-        accessions=accessions,
+        accessions=tuple(sorted({r["accession"] for r in ev})),
         origin=origin,
     )
 
