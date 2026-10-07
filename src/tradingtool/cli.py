@@ -270,7 +270,7 @@ def sec_diario(
 
 def _sync_prices(settings: Settings, cfg: AppConfig, start: date, end: date) -> None:
     from tradingtool.insiders.screener import candidate_tickers, pending_outcome_tickers
-    from tradingtool.prices.base import MarketSnapshotSource
+    from tradingtool.prices.base import MarketSnapshotSource, PriceSourceAuthError
     from tradingtool.prices.sync import (
         relevant_tickers,
         repair_split_jumps,
@@ -319,8 +319,32 @@ def _sync_prices(settings: Settings, cfg: AppConfig, start: date, end: date) -> 
         )
         if repaired:
             console.print(f"Historia re-descargada por posibles splits: {', '.join(repaired)}")
+    except PriceSourceAuthError as exc:
+        console.print(f"[red]{exc}.[/red]")
+        console.print(_auth_hint(settings))
+        raise typer.Exit(1) from None
     finally:
         con.close()
+
+
+def _auth_hint(settings: Settings) -> str:
+    """Pistas para claves rechazadas, sin mostrar nunca las claves."""
+    if settings.price_source != "alpaca":
+        return f"Revisa la clave de {settings.price_source} en tu .env."
+    kid = settings.alpaca_key_id.get_secret_value().strip() if settings.alpaca_key_id else ""
+    sec = (
+        settings.alpaca_secret_key.get_secret_value().strip() if settings.alpaca_secret_key else ""
+    )
+    lines = [
+        "Alpaca rechazó las claves. Revisa en tu .env:",
+        f"  TT_ALPACA_KEY_ID: {len(kid)} caracteres, empieza por '{kid[:2]}' "
+        "(suele tener ~20 y empezar por PK o AK)",
+        f"  TT_ALPACA_SECRET_KEY: {len(sec)} caracteres (suele tener ~40)",
+        "  - ¿Están invertidas (ID en el lugar del secreto)?",
+        "  - ¿Generaste claves nuevas después? Las anteriores dejan de servir.",
+        "  - El secreto solo se muestra una vez: si no lo copiaste completo, genera claves nuevas.",
+    ]
+    return "\n".join(lines)
 
 
 @app.command()

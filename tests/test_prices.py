@@ -472,3 +472,21 @@ def test_alpaca_never_requests_today_and_requires_keys():
     assert date.fromisoformat(seen[-1].url.params["end"]) < today
     with pytest.raises(PriceSourceError):
         AlpacaSource("K", "")
+
+
+def test_bad_keys_stop_the_sync_instead_of_trying_every_ticker():
+    from tradingtool.db import connect
+    from tradingtool.prices.base import PriceSourceAuthError
+    from tradingtool.prices.sources import AlpacaSource
+
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(401, json={"message": "unauthorized"})
+
+    src = AlpacaSource("K", "S", transport=httpx.MockTransport(handler), sleep=lambda s: None)
+    con = connect(":memory:")
+    with pytest.raises(PriceSourceAuthError):
+        sync_tickers(con, src, ["AAA", "BBB", "CCC"], date(2020, 1, 1), date(2020, 2, 1))
+    assert len(calls) == 1

@@ -20,6 +20,10 @@ class PriceSourceError(RuntimeError):
     pass
 
 
+class PriceSourceAuthError(PriceSourceError):
+    """El proveedor rechazó las claves (401): no tiene sentido seguir con más tickers."""
+
+
 @runtime_checkable
 class PriceSource(Protocol):
     name: str

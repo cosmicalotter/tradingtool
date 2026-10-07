@@ -19,6 +19,7 @@ import numpy as np
 from tradingtool.prices.base import (
     MarketSnapshotSource,
     PriceSource,
+    PriceSourceAuthError,
     PriceSourceError,
     last_dates,
     load_bars,
@@ -71,6 +72,8 @@ def sync_tickers(
             continue
         try:
             df = source.daily_bars(t, s, end)
+        except PriceSourceAuthError:
+            raise  # claves malas: fallarían todos los tickers, mejor parar ya
         except PriceSourceError as exc:
             stats.errors.append(f"{t}: {exc}")
             log.warning("Precios de %s: %s", t, exc)
@@ -127,6 +130,8 @@ def sync_market(
     for i, d in enumerate(days, 1):
         try:
             df = source.market_day(d)
+        except PriceSourceAuthError:
+            raise
         except PriceSourceError as exc:
             stats.errors.append(f"{d}: {exc}")
             log.warning("Mercado %s: %s", d, exc)

@@ -23,7 +23,12 @@ import httpx
 import pandas as pd
 
 from tradingtool.edgar.client import RateLimiter
-from tradingtool.prices.base import COLUMNS, PriceSourceError, normalize_bars
+from tradingtool.prices.base import (
+    COLUMNS,
+    PriceSourceAuthError,
+    PriceSourceError,
+    normalize_bars,
+)
 
 log = logging.getLogger(__name__)
 NY = ZoneInfo("America/New_York")
@@ -61,7 +66,12 @@ class _HttpJsonClient:
             else:
                 if resp.status_code == 200:
                     return resp.json()
-                if resp.status_code in (401, 403):
+                if resp.status_code == 401:
+                    raise PriceSourceAuthError(
+                        "El proveedor rechazó tus claves (401): revisa en .env que estén "
+                        "completas, sin espacios y en la variable correcta"
+                    )
+                if resp.status_code == 403:
                     raise PriceSourceError(
                         f"Clave de API inválida, o el dato está fuera de lo que cubre tu plan "
                         f"(p. ej. el plan gratuito de Massive solo cubre ~2 años) "
