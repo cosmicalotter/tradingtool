@@ -135,6 +135,8 @@ CREATE TABLE IF NOT EXISTS outcomes (
     mfe DOUBLE,
     bench_ret DOUBLE,
     excess_ret DOUBLE,
+    bench2_ret DOUBLE,   -- benchmark secundario (por defecto IWM: empresas pequeñas)
+    excess2_ret DOUBLE,
     bars_held INTEGER,
     status VARCHAR NOT NULL DEFAULT 'complete',  -- complete | truncated (dejó de cotizar)
     computed_at TIMESTAMP DEFAULT current_timestamp,

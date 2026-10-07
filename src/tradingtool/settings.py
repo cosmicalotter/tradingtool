@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     massive_api_key: SecretStr | None = None
     tiingo_api_key: SecretStr | None = None
     benchmark_ticker: str = "SPY"
+    # Secundario: las compras de insiders se concentran en empresas pequeñas; IWM controla
+    # (en parte) que el exceso no sea solo "prima de tamaño".
+    benchmark_secondary_ticker: str = "IWM"
 
     @field_validator("sec_user_agent")
     @classmethod

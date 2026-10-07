@@ -119,3 +119,11 @@ def test_group_stats_empty_and_verdict_years():
 
     strong = GroupStats("m", 500, 40, 0.02, 0.01, 0.6, 3.0, 0.01, 0.03, 0.005, 0)
     assert "años" in verdict(strong, years)
+
+
+def test_secondary_benchmark_group(con):
+    _seed(con, excess=0.03)
+    con.execute("UPDATE outcomes SET bench2_ret = ret - 0.001")  # casi todo es "tamaño"
+    rep = evaluate(con, AppConfig(), 63, "backtest")
+    g = {x.name: x for x in rep.groups}["pasan · exceso vs IWM (tamaño)"]
+    assert g.mean_net_excess < 0.01  # el exceso desaparece contra IWM

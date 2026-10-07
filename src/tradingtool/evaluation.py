@@ -40,8 +40,8 @@ def load_outcomes(
 ) -> pd.DataFrame:
     sql = """
         SELECT s.signal_id, s.as_of_date, s.ticker, s.passed, s.features, s.score,
-               o.entry_date, o.entry_price, o.ret, o.bench_ret, o.excess_ret, o.mae, o.mfe,
-               o.status
+               o.entry_date, o.entry_price, o.ret, o.bench_ret, o.excess_ret, o.bench2_ret,
+               o.mae, o.mfe, o.status
         FROM outcomes o JOIN signals s USING (signal_id)
         WHERE o.horizon_days = ? AND s.origin = ?
     """
@@ -82,6 +82,8 @@ def add_costs(
     out["cost"] = costs
     out["net_ret"] = out["ret"] - out["cost"]
     out["net_excess"] = out["net_ret"] - out["bench_ret"]
+    if "bench2_ret" in out.columns:
+        out["net_excess2"] = out["net_ret"] - out["bench2_ret"]
     return out
 
 
@@ -173,6 +175,14 @@ def evaluate(
         group_stats("pasan · con ejecutivo", passed[passed["officer"]]),
         group_stats("pasan · solo directores", passed[~passed["officer"]]),
     ]
+    if "net_excess2" in passed.columns and passed["net_excess2"].notna().any():
+        # Secundario: exceso contra empresas pequeñas (IWM), para separar "prima de tamaño".
+        rep.groups.append(
+            group_stats(
+                "pasan · exceso vs IWM (tamaño)",
+                passed.drop(columns=["net_excess"]).rename(columns={"net_excess2": "net_excess"}),
+            )
+        )
     if not passed.empty:
         py = passed.assign(year=passed["entry_date"].dt.year)
         rep.by_year = (

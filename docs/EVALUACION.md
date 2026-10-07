@@ -41,7 +41,7 @@ Todas se fijaron a priori a partir de la literatura. **Ninguna se optimizó.**
 | Evento | Todas las compras válidas de una empresa con la misma fecha de presentación | — |
 | Entrada (medición) | **Apertura del día hábil siguiente** a la fecha de presentación | Sin mirar al futuro |
 | Horizonte principal | **63 días hábiles** (~3 meses) | Secundarios: 5, 10, 21 y 126 |
-| Benchmark | SPY, en la misma ventana | A nivel de portafolio se comparará contra el ETF UCITS núcleo |
+| Benchmark | SPY, en la misma ventana (principal); IWM como secundario para controlar el tamaño | A nivel de portafolio se comparará contra el ETF UCITS núcleo |
 | Costos | Modelo IBKR Pro tiered + spread/deslizamiento según liquidez (50/25/10/5 pb por lado) para una posición de referencia de US$1.000 | Conservador a propósito |
 
 ## 3. Garantías contra la mirada al futuro (*look-ahead*)
@@ -105,5 +105,5 @@ Pasar a dinero real exige además los criterios de la Fase 4 del plan (`docs/00-
 | Costos subestimados | Modelo conservador; se reporta el costo medio por señal. |
 | Narrativa | El LLM no participa en v1. Si se agrega, se evalúa con A/B y placebo, y solo con eventos posteriores a su fecha de corte de entrenamiento. |
 | Filings conjuntos | La identidad del insider es el primer reporting owner; el rol es el de cualquiera de los dueños del filing. |
-| Benchmark que no controla tamaño | Las compras de insiders se concentran en empresas pequeñas, así que un exceso sobre SPY podría ser solo "prima de tamaño". Pendiente: reportar también contra IWM (Russell 2000) como análisis secundario antes de pasar a dinero real. |
+| Benchmark que no controla tamaño | Las compras de insiders se concentran en empresas pequeñas, así que un exceso sobre SPY podría ser solo "prima de tamaño". Por eso `tt evaluar` reporta también el exceso contra IWM (Russell 2000) como análisis secundario. Si el exceso desaparece contra IWM, la "ventaja" era solo prima de tamaño. |
 | Señales superpuestas | Muchas señales comparten meses; por eso el t se calcula sobre promedios mensuales y no por señal. |

@@ -155,3 +155,16 @@ def test_no_outcome_when_first_bar_is_far_after_signal(con):
     # señal en enero, pero la primera barra es de marzo: entrada falsa -> no se mide
     j.record_signals(con, None, [_signal(as_of=date(2026, 1, 15))])
     assert j.update_outcomes(con, horizons=(5,), benchmark_ticker=None) == 0
+
+
+def test_secondary_benchmark(con):
+    dates = _bdays(date(2026, 1, 1), 40)
+    _insert_prices(con, "ACME", dates)
+    _insert_prices(con, "SPY", dates, start_price=100.0, step=0.0)
+    _insert_prices(con, "IWM", dates, start_price=50.0, step=0.5)
+    j.record_signals(con, None, [_signal(as_of=dates[3])])
+    j.update_outcomes(con, horizons=(5,), benchmark_ticker="SPY", secondary_ticker="IWM")
+    o = con.execute("select ret, bench2_ret, excess2_ret from outcomes").fetchone()
+    # IWM: apertura día 4 = 52.0 ; cierre día 8 = 54.05
+    assert o[1] == pytest.approx(54.05 / 52.0 - 1)
+    assert o[2] == pytest.approx(o[0] - o[1])

@@ -206,6 +206,16 @@ def record_decision(
 # ------------------------------------------------------------------------------ resultados
 
 
+def _bench_ret(bench: pd.DataFrame | None, entry_day: date, exit_day: date) -> float | None:
+    if bench is None or bench.empty:
+        return None
+    b_entry = bench[bench["date"] == entry_day]
+    b_exit = bench[bench["date"] == exit_day]
+    if b_entry.empty or b_exit.empty or float(b_entry["open"].iloc[0]) <= 0:
+        return None
+    return float(b_exit["close"].iloc[0]) / float(b_entry["open"].iloc[0]) - 1.0
+
+
 def _compute_one(
     bars: pd.DataFrame,
     bench: pd.DataFrame | None,
@@ -213,6 +223,7 @@ def _compute_one(
     horizon: int,
     market_last_date: date | None,
     market_dates: Sequence[date],
+    bench2: pd.DataFrame | None = None,
 ) -> dict[str, Any] | None:
     """Calcula el resultado de una señal a un horizonte. None si aún no se puede calcular."""
     future = bars[bars["date"] > as_of]
@@ -241,12 +252,8 @@ def _compute_one(
     mae = float(window["low"].min()) / entry_price - 1.0
     mfe = float(window["high"].max()) / entry_price - 1.0
 
-    bench_ret = None
-    if bench is not None and not bench.empty:
-        b_entry = bench[bench["date"] == entry_bar["date"]]
-        b_exit = bench[bench["date"] == exit_bar["date"]]
-        if not b_entry.empty and not b_exit.empty and float(b_entry["open"].iloc[0]) > 0:
-            bench_ret = float(b_exit["close"].iloc[0]) / float(b_entry["open"].iloc[0]) - 1.0
+    bench_ret = _bench_ret(bench, entry_bar["date"], exit_bar["date"])
+    bench2_ret = _bench_ret(bench2, entry_bar["date"], exit_bar["date"])
     return {
         "entry_date": entry_bar["date"],
         "entry_price": entry_price,
@@ -257,6 +264,8 @@ def _compute_one(
         "mfe": mfe,
         "bench_ret": bench_ret,
         "excess_ret": (ret - bench_ret) if bench_ret is not None else None,
+        "bench2_ret": bench2_ret,
+        "excess2_ret": (ret - bench2_ret) if bench2_ret is not None else None,
         "bars_held": len(window),
         "status": status,
     }
@@ -276,6 +285,7 @@ def update_outcomes(
     con: duckdb.DuckDBPyConnection,
     horizons: Sequence[int],
     benchmark_ticker: str | None = "SPY",
+    secondary_ticker: str | None = None,
 ) -> int:
     """Calcula resultados pendientes para todas las señales con ticker. Idempotente.
 
@@ -300,6 +310,7 @@ def update_outcomes(
     ]
     market_last = market_dates[-1] if market_dates else None
     bench = _load_bars(con, benchmark_ticker) if benchmark_ticker else None
+    bench2 = _load_bars(con, secondary_ticker) if secondary_ticker else None
 
     rows = []
     for ticker, group in pending.groupby("ticker"):
@@ -308,7 +319,9 @@ def update_outcomes(
             continue
         for rec in group.itertuples(index=False):
             as_of = pd.Timestamp(rec.as_of_date).date()
-            res = _compute_one(bars, bench, as_of, int(rec.horizon), market_last, market_dates)
+            res = _compute_one(
+                bars, bench, as_of, int(rec.horizon), market_last, market_dates, bench2
+            )
             if res is None:
                 continue
             rows.append({"signal_id": rec.signal_id, "horizon_days": int(rec.horizon), **res})
@@ -320,9 +333,10 @@ def update_outcomes(
         con.execute(
             """
             INSERT INTO outcomes (signal_id, horizon_days, entry_date, entry_price, exit_date,
-                exit_price, ret, mae, mfe, bench_ret, excess_ret, bars_held, status)
+                exit_price, ret, mae, mfe, bench_ret, excess_ret, bench2_ret, excess2_ret,
+                bars_held, status)
             SELECT signal_id, horizon_days, entry_date, entry_price, exit_date, exit_price, ret,
-                mae, mfe, bench_ret, excess_ret, bars_held, status
+                mae, mfe, bench_ret, excess_ret, bench2_ret, excess2_ret, bars_held, status
             FROM tt_new_outcomes
             ON CONFLICT (signal_id, horizon_days) DO NOTHING
             """

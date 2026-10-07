@@ -267,6 +267,7 @@ def _sync_prices(settings: Settings, cfg: AppConfig, start: date, end: date) -> 
             tickers = set(candidate_tickers(con, start - timedelta(days=60), end))
             tickers |= set(pending_outcome_tickers(con, max(cfg.outcomes.horizons_days)))
             tickers.add(settings.benchmark_ticker)
+            tickers.add(settings.benchmark_secondary_ticker)
             st = sync_tickers(con, src, sorted(tickers), start - timedelta(days=120), end)
             console.print(
                 f"Precios ({src.name}): {st.tickers_updated} tickers, {st.rows_written:,} barras"
@@ -370,7 +371,12 @@ def resultados() -> None:
     settings, cfg = _ctx()
     con = connect(settings.db_path)
     try:
-        n = update_outcomes(con, cfg.outcomes.horizons_days, settings.benchmark_ticker)
+        n = update_outcomes(
+            con,
+            cfg.outcomes.horizons_days,
+            settings.benchmark_ticker,
+            settings.benchmark_secondary_ticker,
+        )
     finally:
         con.close()
     console.print(f"{n} resultados nuevos calculados.")
