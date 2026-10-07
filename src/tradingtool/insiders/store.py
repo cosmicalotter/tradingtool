@@ -27,6 +27,7 @@ def _filings_frames(
                 "issuer_name": f.issuer_name,
                 "issuer_ticker": f.issuer_ticker,
                 "aff10b5one": f.aff10b5one,
+                "mentions_10b5_1": f.mentions_10b5_1,
             }
         )
         for i, o in enumerate(f.owners):
@@ -66,7 +67,7 @@ def _filings_frames(
 
 _FILING_COLS = (
     "accession, source, form_type, filing_date, acceptance_ts, period_of_report, "
-    "issuer_cik, issuer_name, issuer_ticker, aff10b5one"
+    "issuer_cik, issuer_name, issuer_ticker, aff10b5one, mentions_10b5_1"
 )
 _OWNER_COLS = (
     "accession, owner_seq, owner_cik, owner_name, is_director, is_officer, "

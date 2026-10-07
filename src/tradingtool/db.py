@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS insider_filings (
     issuer_name VARCHAR,
     issuer_ticker VARCHAR,
     aff10b5one BOOLEAN,
+    mentions_10b5_1 BOOLEAN,
     ingested_at TIMESTAMP DEFAULT current_timestamp
 );
 
@@ -103,6 +104,7 @@ CREATE TABLE IF NOT EXISTS signals (
     issuer_name VARCHAR,
     score DOUBLE,
     passed BOOLEAN NOT NULL,
+    origin VARCHAR NOT NULL DEFAULT 'live',  -- live | backtest (histórico)
     reasons JSON,
     features JSON,
     accessions JSON,

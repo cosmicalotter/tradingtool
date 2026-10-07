@@ -37,6 +37,8 @@ _HEADER_PATTERNS = {
 _DOCUMENT_RE = re.compile(r"<DOCUMENT>(.*?)</DOCUMENT>", re.DOTALL | re.IGNORECASE)
 _TYPE_RE = re.compile(r"<TYPE>\s*([^\s<]+)", re.IGNORECASE)
 _XML_RE = re.compile(r"<XML>(.*?)</XML>", re.DOTALL | re.IGNORECASE)
+# "10b5-1", "10b5 1", "10b-5-1", "10b5–1" (guiones tipográficos incluidos)
+PLAN_10B5_1_RE = re.compile(r"10b[\s\-\u2010-\u2014]?5[\s\-\u2010-\u2014]?1", re.IGNORECASE)
 
 
 class Form4ParseError(ValueError):
@@ -206,6 +208,12 @@ def parse_ownership_xml(
         fid = fn.get("id")
         if fid:
             footnotes[fid] = " ".join("".join(fn.itertext()).split())
+    remarks = (
+        " ".join("".join(root.find("remarks").itertext()).split())
+        if root.find("remarks") is not None
+        else ""
+    )
+    mentions = any(PLAN_10B5_1_RE.search(t) for t in [*footnotes.values(), remarks])
 
     return Form4Filing(
         accession=normalize_accession(accession),
@@ -221,6 +229,7 @@ def parse_ownership_xml(
         owners=owners,
         transactions=tuple(transactions),
         footnotes=footnotes,
+        mentions_10b5_1=mentions,
     )
 
 

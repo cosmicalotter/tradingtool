@@ -32,6 +32,8 @@ class TransactionCfg(_Strict):
     codes: tuple[str, ...] = ("P",)  # P = compra en mercado abierto
     min_value_usd: float = Field(10_000, ge=0)  # valor mínimo comprado por el insider
     exclude_10b5_1: bool = True  # excluir compras marcadas como plan 10b5-1
+    # Antes de 2023 no existía la casilla: excluir si una nota al pie/observación lo menciona.
+    exclude_10b5_1_footnote_mentions: bool = True
     max_filing_lag_days: int = Field(10, ge=0)  # días calendario entre transacción y filing
     common_stock_only: bool = True  # solo tabla no derivada (acciones comunes)
     include_amendments: bool = False  # 4/A

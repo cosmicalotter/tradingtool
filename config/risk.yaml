@@ -1,0 +1,8 @@
+# Riesgo del "satélite" (cuenta PAPER por ahora). Valores conservadores.
+capital_usd: 1000          # capital simulado para la calculadora
+risk_per_trade_pct: 0.5    # % del capital que se pierde si salta el stop
+max_position_pct: 25       # ninguna posición supera el 25% del capital
+max_positions: 5
+stop_atr_multiple: 2.5     # stop = entrada - 2.5 x ATR(14)
+atr_period: 14
+max_roundtrip_cost_pct: 0.30   # si comprar+vender cuesta más que esto, no vale la pena

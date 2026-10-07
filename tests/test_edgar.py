@@ -290,3 +290,28 @@ def test_sync_day_without_index(con):
     )
     stats = sync_form4_day(client, con, date(2026, 10, 4))  # domingo
     assert not stats.index_found and stats.stored == 0
+
+
+def test_mentions_10b5_1_in_footnotes_or_remarks():
+    base = """<ownershipDocument><issuer><issuerCik>1</issuerCik></issuer>
+      <footnotes><footnote id="F1">{fn}</footnote></footnotes><remarks>{rem}</remarks>
+      </ownershipDocument>"""
+
+    def parse(fn, rem):
+        return parse_ownership_xml(
+            base.format(fn=fn, rem=rem), accession="0" * 18, filing_date=date(2020, 1, 2)
+        )
+
+    assert parse("Sold pursuant to a Rule 10b5-1 trading plan.", "").mentions_10b5_1
+    assert parse("x", "Plan under Rule 10b5–1 adopted").mentions_10b5_1
+    assert parse("10b-5-1 plan", "").mentions_10b5_1
+    assert not parse("Weighted average price.", "").mentions_10b5_1
+
+
+def test_real_filing_without_10b5_mention(fixtures_dir):
+    f = parse_ownership_xml(
+        _read(fixtures_dir, "oxy_2026_P.xml"),
+        accession="0001628280-26-045313",
+        filing_date=date(2026, 6, 24),
+    )
+    assert f.mentions_10b5_1 is False

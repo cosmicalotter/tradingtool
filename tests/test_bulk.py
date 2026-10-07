@@ -472,3 +472,27 @@ def test_download_missing_quarter(tmp_path):
     )
     with pytest.raises(FileNotFoundError):
         download_quarter(client, "2030q1", tmp_path)
+
+
+def test_10b5_1_mentions_from_footnotes_and_remarks(con, tmp_path):
+    sub_rows = _sub_rows()
+    # REMARKS (penúltima columna) del filing ...010 menciona un plan
+    parts = sub_rows[1].split("\t")
+    parts[-2] = "Purchases made under a Rule 10b5-1 plan"
+    sub_rows[1] = "\t".join(parts)
+    files = {
+        "SUBMISSION.tsv": "\n".join([SUB_HEADER, *sub_rows]) + "\n",
+        "REPORTING_OWNER.tsv": "\n".join([OWN_HEADER, *_own_rows()]) + "\n",  # alias
+        "NONDERIV_TRANS.tsv": "\n".join([NTR_HEADER, *_ntr_rows()]) + "\n",
+        "FOOTNOTES.tsv": "ACCESSION_NUMBER\tFOOTNOTE_ID\tFOOTNOTE_TXT\n"
+        "0001250853-24-000012\tF1\tEffected pursuant to a 10b5-1 trading plan adopted 2023.\n"
+        "0001250853-24-000009\tF1\tWeighted average price.\n",
+    }
+    stats = load_zip_bytes(con, build_zip(files), "2024q3", tmp_path)
+    assert stats.filings_inserted == 3
+    got = dict(con.execute("select accession, mentions_10b5_1 from insider_filings").fetchall())
+    assert got == {
+        "0001250853-24-000009": False,
+        "0001250853-24-000010": True,
+        "0001250853-24-000012": True,
+    }

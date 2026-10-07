@@ -36,6 +36,10 @@ BULK_URL_TEMPLATES = (
 FIRST_QUARTER = (2006, 1)
 _Q_RE = re.compile(r"^(\d{4})[qQ]([1-4])$")
 _REQUIRED = ("SUBMISSION.tsv", "REPORTINGOWNER.tsv", "NONDERIV_TRANS.tsv")
+_OPTIONAL = ("FOOTNOTES.tsv",)
+# Algunos trimestres antiguos podrían usar otro nombre de archivo (no verificado): se acepta.
+_ALIASES = {"REPORTING_OWNER.tsv": "REPORTINGOWNER.tsv"}
+_PLAN_10B5_1_SQL = r"(?i)10b[\s\-]?5[\s\-]?1"
 
 
 def parse_quarter(text: str) -> tuple[int, int]:
@@ -94,7 +98,8 @@ def extract_tsvs(zip_path: Path, dest_dir: Path) -> dict[str, Path]:
     with zipfile.ZipFile(zip_path) as zf:
         for info in zf.infolist():
             name = Path(info.filename).name  # ignora directorios: evita "zip slip"
-            if name in _REQUIRED:
+            name = _ALIASES.get(name, name)
+            if name in _REQUIRED or name in _OPTIONAL:
                 target = dest_dir / name
                 with zf.open(info) as src, open(target, "wb") as dst:
                     dst.write(src.read())
@@ -128,6 +133,8 @@ def load_tsvs(con: duckdb.DuckDBPyConnection, tsvs: dict[str, Path], quarter: st
     sub, own, ntr = tsvs["SUBMISSION.tsv"], tsvs["REPORTINGOWNER.tsv"], tsvs["NONDERIV_TRANS.tsv"]
     sub_cols, own_cols, ntr_cols = _columns(con, sub), _columns(con, own), _columns(con, ntr)
     aff = _col(sub_cols, "AFF10B5ONE")
+    remarks = _col(sub_cols, "REMARKS")
+    fnt = tsvs.get("FOOTNOTES.tsv")
 
     con.execute("BEGIN TRANSACTION")
     try:
@@ -147,7 +154,8 @@ def load_tsvs(con: duckdb.DuckDBPyConnection, tsvs: dict[str, Path], quarter: st
                 END AS issuer_ticker,
                 CASE WHEN lower(trim({aff})) IN ('1', 'true', 'y', 'yes') THEN TRUE
                      WHEN lower(trim({aff})) IN ('0', 'false', 'n', 'no') THEN FALSE
-                     ELSE NULL END AS aff10b5one
+                     ELSE NULL END AS aff10b5one,
+                coalesce(regexp_matches({remarks}, '{_PLAN_10B5_1_SQL}'), FALSE) AS remarks_10b5
             FROM {_read_tsv_sql(sub)}
             WHERE upper(trim(DOCUMENT_TYPE)) IN ('4', '4/A')
               AND ACCESSION_NUMBER IS NOT NULL
@@ -162,15 +170,29 @@ def load_tsvs(con: duckdb.DuckDBPyConnection, tsvs: dict[str, Path], quarter: st
             QUALIFY row_number() OVER (PARTITION BY accession ORDER BY filing_date) = 1
             """
         )
+        if fnt is not None:
+            con.execute(
+                f"""
+                CREATE OR REPLACE TEMP TABLE tt_bulk_fn10b5 AS
+                SELECT DISTINCT trim(ACCESSION_NUMBER) AS accession
+                FROM {_read_tsv_sql(fnt)}
+                WHERE regexp_matches(FOOTNOTE_TXT, '{_PLAN_10B5_1_SQL}')
+                  AND trim(ACCESSION_NUMBER) IN (SELECT accession FROM tt_bulk_new)
+                """  # noqa: S608
+            )
+        else:
+            con.execute("CREATE OR REPLACE TEMP TABLE tt_bulk_fn10b5 (accession VARCHAR)")
         stats.filings_in_file = con.execute("SELECT count(*) FROM tt_bulk_sub").fetchone()[0]
         stats.filings_inserted = con.execute("SELECT count(*) FROM tt_bulk_new").fetchone()[0]
         con.execute(
             """
             INSERT INTO insider_filings (accession, source, form_type, filing_date, acceptance_ts,
-                period_of_report, issuer_cik, issuer_name, issuer_ticker, aff10b5one)
-            SELECT accession, 'sec_bulk', form_type, filing_date, NULL, period_of_report,
-                issuer_cik, issuer_name, issuer_ticker, aff10b5one
-            FROM tt_bulk_new
+                period_of_report, issuer_cik, issuer_name, issuer_ticker, aff10b5one,
+                mentions_10b5_1)
+            SELECT n.accession, 'sec_bulk', n.form_type, n.filing_date, NULL, n.period_of_report,
+                n.issuer_cik, n.issuer_name, n.issuer_ticker, n.aff10b5one,
+                (n.remarks_10b5 OR f.accession IS NOT NULL)
+            FROM tt_bulk_new n LEFT JOIN tt_bulk_fn10b5 f USING (accession)
             """
         )
 
@@ -253,6 +275,7 @@ def load_tsvs(con: duckdb.DuckDBPyConnection, tsvs: dict[str, Path], quarter: st
             "SELECT count(*) FROM insider_transactions WHERE accession IN "
             "(SELECT accession FROM tt_bulk_new)"
         ).fetchone()[0]
+        con.execute("DROP TABLE IF EXISTS tt_bulk_fn10b5")
         con.execute("DROP TABLE IF EXISTS tt_bulk_sub")
         con.execute("DROP TABLE IF EXISTS tt_bulk_new")
         con.execute("COMMIT")

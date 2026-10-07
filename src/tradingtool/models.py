@@ -67,6 +67,9 @@ class Form4Filing:
     owners: tuple[ReportingOwner, ...] = ()
     transactions: tuple[InsiderTransaction, ...] = ()
     footnotes: dict[str, str] = field(default_factory=dict)
+    # Alguna nota al pie u observación menciona un plan 10b5-1 (útil antes de 2023, cuando no
+    # existía la casilla). Ojo: puede referirse a otra transacción del mismo filing.
+    mentions_10b5_1: bool | None = None
 
     @property
     def primary_owner(self) -> ReportingOwner | None:
@@ -92,6 +95,7 @@ class Signal:
     reasons: tuple[str, ...]  # por qué pasó o por qué se bloqueó (texto en español)
     features: dict[str, Any]
     accessions: tuple[str, ...]
+    origin: str = "live"  # "live" (día a día) | "backtest" (reconstrucción histórica)
 
 
 @dataclass(frozen=True)

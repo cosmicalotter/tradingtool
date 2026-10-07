@@ -1,0 +1,42 @@
+# Estrategia insider-v1 (PRE-REGISTRADA: ver docs/EVALUACION.md).
+# Regla de oro: NO cambies estos valores mirando resultados. Si quieres probar otra versión,
+# copia el archivo, cambia strategy_version (p. ej. insider-v2) y corre ambas en paralelo.
+strategy_version: insider-v1
+
+universe:
+  min_price: 2.0                 # precio pagado por el insider (USD); evita "penny stocks"
+  min_avg_dollar_volume: 250000  # volumen promedio diario en USD (20 días) para poder operar
+  adv_window_days: 20
+
+transactions:
+  codes: [P]                     # P = compra en mercado abierto (la única con información)
+  min_value_usd: 10000           # filtro de ruido a priori (no optimizado)
+  exclude_10b5_1: true           # compras programadas en planes 10b5-1 no informan nada
+  exclude_10b5_1_footnote_mentions: true
+  max_filing_lag_days: 10        # información "fresca": reportada ≤10 días tras la compra
+  common_stock_only: true
+  include_amendments: false      # las 4/A se excluyen para no contar doble
+
+roles:
+  include_officers: true
+  include_directors: true
+  include_ten_pct_owners_only: false   # dueños >10% sin cargo (suelen ser fondos)
+  include_other: false
+
+classification:
+  lookback_years: 3
+  # exclude_routine: oportunistas + no clasificables (excluye rutinarios, Cohen-Malloy-Pomorski)
+  mode: exclude_routine
+
+cluster:
+  window_days: 30
+  min_insiders: 1                # el cluster suma puntaje; no es requisito
+
+scoring:                         # solo ordena ideas; no decide si una idea pasa
+  w_log_value: 1.0
+  w_cluster: 1.0
+  w_officer: 0.5
+  w_ownership_increase: 1.0
+  w_opportunistic: 0.5
+
+lookback_days_for_events: 7      # cada día se re-evalúan los filings de la última semana

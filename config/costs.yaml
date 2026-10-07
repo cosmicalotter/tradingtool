@@ -1,0 +1,21 @@
+# Modelo de costos IBKR Pro (acciones/ETF EE. UU.). Estimación CONSERVADORA; verificar tarifas
+# periódicamente en https://www.interactivebrokers.com/en/pricing/commissions-home.php
+plan: tiered
+tiered:
+  per_share: 0.0035
+  min_per_order: 0.35
+  max_pct_of_value: 1.0          # tope de comisión = 1% del valor de la orden
+  exchange_clearing_per_share: 0.0032   # tasas de bolsa+compensación aprox. (tomando liquidez)
+fixed:
+  per_share: 0.005
+  min_per_order: 1.0
+  max_pct_of_value: 1.0
+regulatory:
+  sec_fee_rate_on_sales: 0.0000278   # Sección 31 (solo ventas); cambia cada año
+  finra_taf_per_share_sold: 0.000166
+  finra_taf_max_per_order: 8.30
+slippage_tiers:                  # spread + deslizamiento por lado según liquidez (ADV en USD)
+  - {max_adv_usd: 1000000, bps_per_side: 50}
+  - {max_adv_usd: 5000000, bps_per_side: 25}
+  - {max_adv_usd: 50000000, bps_per_side: 10}
+  - {max_adv_usd: null, bps_per_side: 5}

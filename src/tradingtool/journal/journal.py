@@ -86,6 +86,7 @@ def record_signals(
             "issuer_name": s.issuer_name,
             "score": float(s.score),
             "passed": bool(s.passed),
+            "origin": s.origin,
             "reasons": json.dumps(list(s.reasons), ensure_ascii=False),
             "features": json.dumps(s.features, default=str, ensure_ascii=False),
             "accessions": json.dumps(list(s.accessions)),
@@ -100,9 +101,10 @@ def record_signals(
         con.execute(
             """
             INSERT INTO signals (signal_id, run_id, strategy_version, config_hash, as_of_date,
-                ticker, issuer_cik, issuer_name, score, passed, reasons, features, accessions)
+                ticker, issuer_cik, issuer_name, score, passed, origin, reasons, features,
+                accessions)
             SELECT signal_id, run_id, strategy_version, config_hash, as_of_date, ticker,
-                issuer_cik, issuer_name, score, passed, reasons, features, accessions
+                issuer_cik, issuer_name, score, passed, origin, reasons, features, accessions
             FROM tt_new_signals
             ON CONFLICT (signal_id) DO UPDATE SET
                 run_id = excluded.run_id, score = excluded.score, passed = excluded.passed,
@@ -122,9 +124,16 @@ def list_signals(
     end: date | None = None,
     passed: bool | None = None,
     limit: int | None = None,
+    origin: str | None = "live",
 ) -> pd.DataFrame:
-    """Señales con su última decisión (si existe), más recientes primero."""
+    """Señales con su última decisión (si existe), más recientes primero.
+
+    Por defecto solo las del día a día (``origin='live'``); ``origin=None`` trae todas.
+    """
     where, params = [], []
+    if origin is not None:
+        where.append("s.origin = ?")
+        params.append(origin)
     if start is not None:
         where.append("s.as_of_date >= ?")
         params.append(start)
@@ -318,8 +327,13 @@ def update_outcomes(
     return len(rows)
 
 
-def outcome_summary(con: duckdb.DuckDBPyConnection, horizon: int) -> pd.DataFrame:
-    """Compara grupos: aprobadas, rechazadas, sin decisión (pasaron filtros) y bloqueadas."""
+def outcome_summary(
+    con: duckdb.DuckDBPyConnection, horizon: int, origin: str | None = "live"
+) -> pd.DataFrame:
+    """Compara grupos: aprobadas, rechazadas, sin decisión (pasaron filtros) y bloqueadas.
+
+    ``origin='backtest'`` resume la reconstrucción histórica; ``None`` mezcla todo.
+    """
     return con.execute(
         """
         WITH last_dec AS (
@@ -336,7 +350,7 @@ def outcome_summary(con: duckdb.DuckDBPyConnection, horizon: int) -> pd.DataFram
                 ELSE 'sin decisión' END AS grupo
             FROM outcomes o JOIN signals s USING (signal_id)
             LEFT JOIN last_dec ld USING (signal_id)
-            WHERE o.horizon_days = ?
+            WHERE o.horizon_days = ? AND (? IS NULL OR s.origin = ?)
         )
         SELECT grupo, count(*) AS n,
             avg(ret) AS ret_medio, median(ret) AS ret_mediano,
@@ -345,5 +359,5 @@ def outcome_summary(con: duckdb.DuckDBPyConnection, horizon: int) -> pd.DataFram
             sum(CASE WHEN status = 'truncated' THEN 1 ELSE 0 END) AS truncadas
         FROM labeled GROUP BY grupo ORDER BY grupo
         """,
-        [horizon],
+        [horizon, origin, origin],
     ).df()

@@ -1,0 +1,3 @@
+# Horizontes (días hábiles) para medir resultados de TODAS las señales.
+# Principal pre-registrado: 63 (~3 meses). Secundarios: 5, 10, 21, 126.
+horizons_days: [5, 10, 21, 63, 126]
