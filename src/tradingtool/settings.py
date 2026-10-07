@@ -45,6 +45,8 @@ class Settings(BaseSettings):
     # --- Precios ---
     price_source: PriceSourceName = "massive"
     massive_api_key: SecretStr | None = None
+    # Historia que cubre tu plan de Massive (el gratuito: ~2 años). Si pagas más, súbelo.
+    massive_history_days: int = 730
     tiingo_api_key: SecretStr | None = None
     eodhd_api_key: SecretStr | None = None  # opcional: un mes pagado para historia larga
     benchmark_ticker: str = "SPY"

@@ -9,6 +9,7 @@ se vuelve a descargar la historia completa ajustada.
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
@@ -35,6 +36,7 @@ class PriceSyncStats:
     tickers_updated: int = 0
     days_fetched: int = 0
     repaired: list[str] = field(default_factory=list)
+    first_day: date | None = None  # primer día realmente descargado (costura para splits)
     errors: list[str] = field(default_factory=list)
 
 
@@ -77,6 +79,8 @@ def sync_tickers(
         if n:
             stats.rows_written += n
             stats.tickers_updated += 1
+            if stats.first_day is None or s < stats.first_day:
+                stats.first_day = s
     return stats
 
 
@@ -136,32 +140,56 @@ def sync_market(
             )
         stats.rows_written += store_bars(con, df, source.name, source.adjusted)
         stats.days_fetched += 1
+        if not df.empty and (stats.first_day is None or d < stats.first_day):
+            stats.first_day = d
         if i % 20 == 0:
             log.info("Precios: %d/%d días", i, len(days))
     return stats
 
 
+def relevant_tickers(con: duckdb.DuckDBPyConnection, extra: Iterable[str] = ()) -> list[str]:
+    """Tickers que importan para la estrategia: los de las señales + benchmarks."""
+    rows = con.execute("SELECT DISTINCT ticker FROM signals WHERE ticker IS NOT NULL").fetchall()
+    return sorted({r[0] for r in rows} | {t for t in extra if t})
+
+
 def repair_split_jumps(
     con: duckdb.DuckDBPyConnection,
     source: PriceSource,
-    since: date,
+    tickers: list[str],
+    boundary: date | None,
     history_start: date,
     end: date,
     max_tickers: int = 25,
 ) -> list[str]:
-    """Re-descarga la historia completa de tickers con saltos extremos desde ``since``."""
+    """Re-descarga la historia de tickers con un salto sospechoso JUSTO en la costura entre lo
+    que ya estaba en la caché (antes de ``boundary``) y lo recién descargado.
+
+    Una descarga hecha de una sola vez ya viene ajustada de forma consistente, así que no hay
+    nada que reparar; el problema solo aparece cuando un split ocurre entre dos descargas.
+    """
+    if boundary is None or not tickers:
+        return []
     suspects = [
         r[0]
         for r in con.execute(
             """
-            SELECT ticker FROM (
-                SELECT ticker, date, close / lag(close) OVER (PARTITION BY ticker ORDER BY date)
-                    AS ratio
-                FROM prices_daily WHERE date >= ?
-            ) WHERE ratio IS NOT NULL AND (ratio > 1.8 OR ratio < 0.55)
-            GROUP BY ticker ORDER BY ticker
+            WITH t AS (SELECT unnest(?::VARCHAR[]) AS ticker),
+            old AS (
+                SELECT p.ticker, arg_max(p.close, p.date) AS c
+                FROM prices_daily p JOIN t USING (ticker)
+                WHERE p.date < ? GROUP BY p.ticker
+            ),
+            new AS (
+                SELECT p.ticker, arg_min(p.close, p.date) AS c
+                FROM prices_daily p JOIN t USING (ticker)
+                WHERE p.date >= ? AND p.date <= ? GROUP BY p.ticker
+            )
+            SELECT old.ticker FROM old JOIN new USING (ticker)
+            WHERE old.c > 0 AND (new.c / old.c > 1.8 OR new.c / old.c < 0.55)
+            ORDER BY 1
             """,
-            [since - timedelta(days=7)],
+            [tickers, boundary, boundary, end],
         ).fetchall()
     ]
     repaired = []
@@ -181,7 +209,7 @@ def repair_split_jumps(
         repaired.append(t)
     if len(suspects) > max_tickers:
         log.warning(
-            "%d tickers con saltos extremos; solo se repararon %d (ejecuta de nuevo para seguir)",
+            "%d tickers con posibles splits; se repararon %d (ejecuta de nuevo para seguir)",
             len(suspects),
             max_tickers,
         )

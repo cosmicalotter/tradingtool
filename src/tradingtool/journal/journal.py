@@ -17,13 +17,16 @@ Convención de resultados (sin mirar al futuro):
 
 from __future__ import annotations
 
+import bisect
 import json
 import uuid
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Any
 
 import duckdb
+import numpy as np
 import pandas as pd
 
 from tradingtool.ids import git_commit, new_run_id
@@ -239,58 +242,85 @@ def record_decision(
 # ------------------------------------------------------------------------------ resultados
 
 
-def _bench_ret(bench: pd.DataFrame | None, entry_day: date, exit_day: date) -> float | None:
-    if bench is None or bench.empty:
+@dataclass(frozen=True)
+class _Bars:
+    """Barras de un ticker en arreglos (mucho más rápido que filtrar DataFrames)."""
+
+    dates: list[date]
+    open: np.ndarray
+    high: np.ndarray
+    low: np.ndarray
+    close: np.ndarray
+    index: dict[date, int]
+
+
+def _to_bars(df: pd.DataFrame) -> _Bars | None:
+    if df is None or df.empty:
         return None
-    b_entry = bench[bench["date"] == entry_day]
-    b_exit = bench[bench["date"] == exit_day]
-    if b_entry.empty or b_exit.empty or float(b_entry["open"].iloc[0]) <= 0:
+    dates = list(df["date"])
+    return _Bars(
+        dates=dates,
+        open=df["open"].to_numpy(dtype=float),
+        high=df["high"].to_numpy(dtype=float),
+        low=df["low"].to_numpy(dtype=float),
+        close=df["close"].to_numpy(dtype=float),
+        index={d: i for i, d in enumerate(dates)},
+    )
+
+
+def _bench_ret(bench: _Bars | None, entry_day: date, exit_day: date) -> float | None:
+    if bench is None:
         return None
-    return float(b_exit["close"].iloc[0]) / float(b_entry["open"].iloc[0]) - 1.0
+    i, j = bench.index.get(entry_day), bench.index.get(exit_day)
+    if i is None or j is None:
+        return None
+    o, c = float(bench.open[i]), float(bench.close[j])
+    if not (o > 0) or not np.isfinite(c):
+        return None
+    return c / o - 1.0
 
 
 def _compute_one(
-    bars: pd.DataFrame,
-    bench: pd.DataFrame | None,
+    bars: _Bars,
+    bench: _Bars | None,
     as_of: date,
     horizon: int,
-    market_last_date: date | None,
     market_dates: Sequence[date],
-    bench2: pd.DataFrame | None = None,
+    bench2: _Bars | None = None,
 ) -> dict[str, Any] | None:
     """Calcula el resultado de una señal a un horizonte. None si aún no se puede calcular."""
-    future = bars[bars["date"] > as_of]
-    if future.empty:
+    n = len(bars.dates)
+    i = bisect.bisect_right(bars.dates, as_of)  # primera barra estrictamente posterior
+    if i >= n:
         return None
-    entry_bar = future.iloc[0]
-    if (entry_bar["date"] - as_of).days > MAX_ENTRY_DELAY_DAYS:
+    entry_day = bars.dates[i]
+    if (entry_day - as_of).days > MAX_ENTRY_DELAY_DAYS:
         return None
-    entry_price = float(entry_bar["open"])
-    if not entry_price or entry_price <= 0:
+    entry_price = float(bars.open[i])
+    if not (entry_price > 0):
         return None
-    window = future.iloc[:horizon]
+    j = min(i + horizon, n)
     status = "complete"
-    if len(window) < horizon:
+    if j - i < horizon:
         # ¿Dejó de cotizar? Compara su último dato con el último dato del mercado.
-        last_bar_date = window["date"].iloc[-1]
-        if market_last_date is None:
+        if not market_dates:
             return None
-        newer = [d for d in market_dates if d > last_bar_date]
-        if len(newer) < STALE_BARS_FOR_TRUNCATION:
+        last_bar_date = bars.dates[j - 1]
+        newer = len(market_dates) - bisect.bisect_right(market_dates, last_bar_date)
+        if newer < STALE_BARS_FOR_TRUNCATION:
             return None  # todavía pendiente
         status = "truncated"
-    exit_bar = window.iloc[-1]
-    exit_price = float(exit_bar["close"])
+    exit_day = bars.dates[j - 1]
+    exit_price = float(bars.close[j - 1])
     ret = exit_price / entry_price - 1.0
-    mae = float(window["low"].min()) / entry_price - 1.0
-    mfe = float(window["high"].max()) / entry_price - 1.0
-
-    bench_ret = _bench_ret(bench, entry_bar["date"], exit_bar["date"])
-    bench2_ret = _bench_ret(bench2, entry_bar["date"], exit_bar["date"])
+    mae = float(np.nanmin(bars.low[i:j])) / entry_price - 1.0
+    mfe = float(np.nanmax(bars.high[i:j])) / entry_price - 1.0
+    bench_ret = _bench_ret(bench, entry_day, exit_day)
+    bench2_ret = _bench_ret(bench2, entry_day, exit_day)
     return {
-        "entry_date": entry_bar["date"],
+        "entry_date": entry_day,
         "entry_price": entry_price,
-        "exit_date": exit_bar["date"],
+        "exit_date": exit_day,
         "exit_price": exit_price,
         "ret": ret,
         "mae": mae,
@@ -299,7 +329,7 @@ def _compute_one(
         "excess_ret": (ret - bench_ret) if bench_ret is not None else None,
         "bench2_ret": bench2_ret,
         "excess2_ret": (ret - bench2_ret) if bench2_ret is not None else None,
-        "bars_held": len(window),
+        "bars_held": j - i,
         "status": status,
     }
 
@@ -341,23 +371,22 @@ def update_outcomes(
     market_dates = [
         r[0] for r in con.execute("SELECT DISTINCT date FROM prices_daily ORDER BY date").fetchall()
     ]
-    market_last = market_dates[-1] if market_dates else None
-    bench = _load_bars(con, benchmark_ticker) if benchmark_ticker else None
-    bench2 = _load_bars(con, secondary_ticker) if secondary_ticker else None
+    bench = _to_bars(_load_bars(con, benchmark_ticker)) if benchmark_ticker else None
+    bench2 = _to_bars(_load_bars(con, secondary_ticker)) if secondary_ticker else None
+    pending["as_of_date"] = pd.to_datetime(pending["as_of_date"]).dt.date
 
     rows = []
-    for ticker, group in pending.groupby("ticker"):
-        bars = _load_bars(con, str(ticker))
-        if bars.empty:
+    for ticker, group in pending.groupby("ticker", sort=False):
+        bars = _to_bars(_load_bars(con, str(ticker)))
+        if bars is None:
             continue
-        for rec in group.itertuples(index=False):
-            as_of = pd.Timestamp(rec.as_of_date).date()
-            res = _compute_one(
-                bars, bench, as_of, int(rec.horizon), market_last, market_dates, bench2
-            )
+        for sid, as_of, horizon in zip(
+            group["signal_id"], group["as_of_date"], group["horizon"], strict=True
+        ):
+            res = _compute_one(bars, bench, as_of, int(horizon), market_dates, bench2)
             if res is None:
                 continue
-            rows.append({"signal_id": rec.signal_id, "horizon_days": int(rec.horizon), **res})
+            rows.append({"signal_id": sid, "horizon_days": int(horizon), **res})
     if not rows:
         return 0
     df = pd.DataFrame(rows)

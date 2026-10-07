@@ -266,9 +266,22 @@ def sec_diario(
 def _sync_prices(settings: Settings, cfg: AppConfig, start: date, end: date) -> None:
     from tradingtool.insiders.screener import candidate_tickers, pending_outcome_tickers
     from tradingtool.prices.base import MarketSnapshotSource
-    from tradingtool.prices.sync import repair_split_jumps, sync_market, sync_tickers
+    from tradingtool.prices.sync import (
+        relevant_tickers,
+        repair_split_jumps,
+        sync_market,
+        sync_tickers,
+    )
 
     src = _price_source(settings)
+    if settings.price_source == "massive":
+        earliest = date.today() - timedelta(days=settings.massive_history_days)
+        if start < earliest:
+            console.print(
+                f"[yellow]Tu plan de Massive cubre desde ~{earliest}; se omiten los días "
+                f"anteriores (para historia más larga ver docs/COSTOS.md).[/yellow]"
+            )
+            start = earliest
     con = connect(settings.db_path)
     try:
         if isinstance(src, MarketSnapshotSource):
@@ -288,7 +301,12 @@ def _sync_prices(settings: Settings, cfg: AppConfig, start: date, end: date) -> 
         for e in st.errors[:10]:
             console.print(f"[yellow]  {e}[/yellow]")
         repaired = repair_split_jumps(
-            con, src, since=start, history_start=start - timedelta(days=700), end=end
+            con,
+            src,
+            relevant_tickers(con, [settings.benchmark_ticker, settings.benchmark_secondary_ticker]),
+            boundary=st.first_day,
+            history_start=end - timedelta(days=settings.massive_history_days),
+            end=end,
         )
         if repaired:
             console.print(f"Historia re-descargada por posibles splits: {', '.join(repaired)}")

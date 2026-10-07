@@ -261,20 +261,76 @@ def test_sync_market_fetches_only_missing_days(con):
     assert market_days_missing(con, days[0], days[-1]) == days[:2]
 
 
-def test_repair_split_jumps(con):
+def test_repair_split_jumps_only_at_the_seam(con):
     hist = _df("SPL", start=date(2026, 1, 5), n=20, close=100.0)
     # la caché tiene la historia vieja sin ajustar + barras nuevas post-split (salto -50%)
     stale = hist.copy()
     stale.loc[stale.index[-5:], ["open", "high", "low", "close"]] = [50, 51, 49, 50]
     store_bars(con, stale, "fake", True)
+    boundary = stale["date"].iloc[-5]  # primer día "nuevo"
     adjusted = hist.copy()
     adjusted[["open", "high", "low", "close"]] = [50, 51, 49, 50]
     src = FakeSource(adjusted)
     repaired = repair_split_jumps(
-        con, src, since=date(2026, 1, 20), history_start=date(2026, 1, 1), end=date(2026, 2, 28)
+        con,
+        src,
+        ["SPL"],
+        boundary=boundary,
+        history_start=date(2026, 1, 1),
+        end=date(2026, 2, 28),
     )
     assert repaired == ["SPL"]
     assert load_bars(con, "SPL")["close"].eq(50).all()
+
+
+def test_repair_ignores_backfill_irrelevant_tickers_and_jumps_inside_new_data(con):
+    # Un warrant que se mueve +200% dentro de la descarga nueva: no es un split, no se toca.
+    w = _df("ABCW", start=date(2026, 1, 5), n=10, close=1.0)
+    w.loc[w.index[5:], ["open", "high", "low", "close"]] = [3, 3, 3, 3]
+    store_bars(con, w, "fake", True)
+    src = FakeSource(w)
+    # sin datos previos a la costura (descarga inicial): nada que reparar
+    assert (
+        repair_split_jumps(
+            con,
+            src,
+            ["ABCW"],
+            boundary=w["date"].iloc[0],
+            history_start=date(2026, 1, 1),
+            end=date(2026, 2, 28),
+        )
+        == []
+    )
+    # ticker no relevante: ni se mira
+    assert (
+        repair_split_jumps(
+            con,
+            src,
+            [],
+            boundary=w["date"].iloc[5],
+            history_start=date(2026, 1, 1),
+            end=date(2026, 2, 28),
+        )
+        == []
+    )
+    assert (
+        repair_split_jumps(
+            con, src, ["ABCW"], boundary=None, history_start=date(2026, 1, 1), end=date(2026, 2, 28)
+        )
+        == []
+    )
+    assert src.calls == []
+
+
+def test_sync_market_records_first_day(con):
+    days = business_days(date(2026, 1, 5), date(2026, 1, 9))
+    rows = [
+        {"ticker": f"T{i}", "date": d, "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1}
+        for d in days
+        for i in range(600)
+    ]
+    st = sync_market(con, FakeSource(pd.DataFrame(rows)), days[0], days[-1])
+    assert st.first_day == days[0]
 
 
 def test_holidays_are_remembered(con):
