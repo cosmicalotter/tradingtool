@@ -15,7 +15,9 @@ from pathlib import Path
 
 import duckdb
 
-SCHEMA_VERSION = 2
+from tradingtool.tickers import ticker_sql
+
+SCHEMA_VERSION = 3
 
 # Columnas agregadas después de la versión 1: se crean en bases existentes (idempotente).
 MIGRATIONS = (
@@ -160,10 +162,33 @@ CREATE INDEX IF NOT EXISTS idx_signals_date ON signals (as_of_date);
 """
 
 
+def _stored_version(con: duckdb.DuckDBPyConnection) -> int:
+    row = con.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
+    try:
+        return int(row[0]) if row else SCHEMA_VERSION
+    except ValueError:
+        return 0
+
+
+def _clean_tickers(con: duckdb.DuckDBPyConnection) -> None:
+    """Versión 3: limpia símbolos mal escritos ya guardados ('"OMEX"', '(CALX)', ...)."""
+    for table, col in (("insider_filings", "issuer_ticker"), ("signals", "ticker")):
+        clean = ticker_sql(col)
+        con.execute(
+            f"UPDATE {table} SET {col} = {clean} "  # noqa: S608 (nombres fijos)
+            f"WHERE {col} IS NOT NULL AND {col} IS DISTINCT FROM {clean}"
+        )
+
+
 def init_schema(con: duckdb.DuckDBPyConnection) -> None:
+    has_meta = con.execute(
+        "SELECT count(*) FROM information_schema.tables WHERE table_name = 'meta'"
+    ).fetchone()[0]
     con.execute(SCHEMA_SQL)
     for stmt in MIGRATIONS:
         con.execute(stmt)
+    if has_meta and _stored_version(con) < 3:
+        _clean_tickers(con)
     con.execute(
         "INSERT INTO meta VALUES ('schema_version', ?) "
         "ON CONFLICT (key) DO UPDATE SET value = excluded.value",

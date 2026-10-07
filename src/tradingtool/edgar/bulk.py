@@ -26,6 +26,7 @@ from pathlib import Path
 import duckdb
 
 from tradingtool.edgar.client import EdgarClient
+from tradingtool.tickers import ticker_sql
 
 log = logging.getLogger(__name__)
 
@@ -148,10 +149,7 @@ def load_tsvs(con: duckdb.DuckDBPyConnection, tsvs: dict[str, Path], quarter: st
                 try_strptime(trim(PERIOD_OF_REPORT), '%d-%b-%Y')::DATE AS period_of_report,
                 lpad(regexp_replace(trim(ISSUERCIK), '[^0-9]', '', 'g'), 10, '0') AS issuer_cik,
                 trim(ISSUERNAME) AS issuer_name,
-                CASE WHEN upper(trim(ISSUERTRADINGSYMBOL)) IN
-                        ('', 'NONE', 'N/A', 'NA', 'NULL', '-', '--') THEN NULL
-                     ELSE regexp_extract(upper(trim(ISSUERTRADINGSYMBOL)), '^[^,;/ ]+')
-                END AS issuer_ticker,
+                {ticker_sql("ISSUERTRADINGSYMBOL")} AS issuer_ticker,
                 CASE WHEN lower(trim({aff})) IN ('1', 'true', 'y', 'yes') THEN TRUE
                      WHEN lower(trim({aff})) IN ('0', 'false', 'n', 'no') THEN FALSE
                      ELSE NULL END AS aff10b5one,

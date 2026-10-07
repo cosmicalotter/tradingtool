@@ -23,9 +23,11 @@ from xml.etree.ElementTree import Element  # solo para tipos
 from defusedxml import ElementTree as SafeET
 
 from tradingtool.models import Form4Filing, InsiderTransaction, ReportingOwner
+from tradingtool.tickers import normalize_ticker
+
+__all__ = ["normalize_ticker"]
 
 FORM4_TYPES = ("4", "4/A")
-_TICKER_NULLS = {"", "NONE", "N/A", "NA", "NULL", "-", "--"}
 
 _HEADER_PATTERNS = {
     "acceptance": re.compile(r"<ACCEPTANCE-DATETIME>\s*(\d{14})"),
@@ -103,17 +105,6 @@ def normalize_cik(raw: str | None) -> str | None:
         return None
     digits = re.sub(r"\D", "", raw)
     return digits.zfill(10) if digits else None
-
-
-def normalize_ticker(raw: str | None) -> str | None:
-    if raw is None:
-        return None
-    t = raw.strip().upper()
-    if t in _TICKER_NULLS:
-        return None
-    # Algunos filings traen varias clases separadas por coma o espacio: usamos la primera.
-    t = re.split(r"[,;/\s]+", t)[0]
-    return t or None
 
 
 def normalize_accession(raw: str) -> str:
