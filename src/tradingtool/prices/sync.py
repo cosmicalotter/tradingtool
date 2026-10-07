@@ -64,7 +64,10 @@ def sync_tickers(
     """Descarga por ticker solo lo que falta (desde su última fecha guardada)."""
     stats = PriceSyncStats(source=source.name)
     last = {} if full else last_dates(con, tickers)
-    for t in sorted(set(tickers)):
+    todo = sorted(set(tickers))
+    for i, t in enumerate(todo, 1):
+        if i % 100 == 0:
+            log.info("Precios: %d/%d tickers", i, len(todo))
         s = start
         if t in last and last[t] is not None:
             s = max(start, last[t] + timedelta(days=1))
