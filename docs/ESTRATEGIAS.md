@@ -5,7 +5,7 @@ Cada estrategia se congela **antes** de ver resultados, se evalúa una sola vez 
 | Estrategia | Estado | Pre-registro | Veredicto |
 |---|---|---|---|
 | `insider-v1` (compras de insiders) | **Archivada** el 2026-10-08 | `docs/EVALUACION.md` | **NO PASA** (validación 2019–2025) |
-| `rotacion-v1` (rotación de ETFs) | En evaluación | `docs/ETF-ROTACION.md` | Pendiente: `uv run tt etf-backtest` |
+| `rotacion-v1` (rotación de ETFs) | **Archivada** el 2026-10-08 | `docs/ETF-ROTACION.md` | **NO PASA** (validación 2015–2024) |
 
 ---
 
@@ -63,3 +63,26 @@ Antes, la prueba con datos de Massive (oct. 2024 – sep. 2025) había dado −2
 `tt diario` y el panel siguen guardando las señales nuevas como **seguimiento fuera de muestra**: es gratis y sirve para confirmar el veredicto con datos futuros. Se muestran con un aviso de "ARCHIVADA" y **no son recomendaciones**.
 
 **Regla de oro:** cambiar parámetros ahora para "hacer que funcione" sería ajustar a la medida del pasado. Una eventual `insider-v2` necesitaría una hipótesis nueva justificada **antes** de mirar datos, y confirmarse en la reserva y en el día a día.
+
+---
+
+## `rotacion-v1`: rotación de ETFs (ARCHIVADA)
+
+Reglas `6a33c4087efef079`. Datos: Tiingo (ETF ajustados) + FRED DTB3 (archivo manual).
+Validación 2015-01 → 2024-12, neta de costos (cuenta de US$5.000):
+
+| | Rinde/año | Sharpe | Peor caída | Órdenes/año |
+|---|---|---|---|---|
+| **Rotación (1-3-6-12)** | **+2,6%** | **0,13** | −26,0% | 26,4 |
+| GEM (referencia) | +5,8% | 0,37 | −33,7% | 2,8 |
+| SMA10 sobre SPY (referencia) | +6,3% | 0,43 | −27,4% | 4,0 |
+| GTAA5 (referencia) | +3,2% | 0,26 | −10,8% | 17,1 |
+| Comprar y mantener SPY | +13,0% | 0,77 | −33,7% | 0 |
+| 60/40 SPY/IEF | +8,5% | 0,70 | −21,5% | 1,4 |
+
+Veredicto: **NO PASA** (falla los criterios 1, 2, 3 y 4; 0 de 6 variantes vecinas). Solo cumple el 5: en
+diseño (2006-12 → 2014-12, con 2008) tuvo Sharpe 0,62 vs 0,46 y caída −22,8% vs −55,2%.
+
+Lección: la rotación protege en caídas LARGAS (2008), pero en 2015–2024 las caídas fueron rápidas y
+con rebote en V (2018, 2020, 2022): vendía tarde y volvía tarde. Además rotar mucho (26 órdenes/año)
+costó ~1,9%/año. Ninguna de las estrategias de tendencia de la literatura le ganó a comprar y mantener.
