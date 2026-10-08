@@ -15,6 +15,16 @@ import pandas as pd
 
 COLUMNS = ["ticker", "date", "open", "high", "low", "close", "volume"]
 
+# Tablas con el mismo formato de barras. La de ETFs va aparte porque guarda precios ajustados
+# por dividendos (retorno total) y no debe mezclarse con la caché de acciones individuales.
+PRICE_TABLES = ("prices_daily", "etf_prices_daily")
+
+
+def _table(name: str) -> str:
+    if name not in PRICE_TABLES:
+        raise ValueError(f"tabla de precios desconocida: {name}")
+    return name
+
 
 class PriceSourceError(RuntimeError):
     pass
@@ -62,9 +72,14 @@ def normalize_bars(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def store_bars(
-    con: duckdb.DuckDBPyConnection, df: pd.DataFrame, source: str, adjusted: bool
+    con: duckdb.DuckDBPyConnection,
+    df: pd.DataFrame,
+    source: str,
+    adjusted: bool,
+    table: str = "prices_daily",
 ) -> int:
-    """Inserta o reemplaza barras en ``prices_daily``. Devuelve filas escritas."""
+    """Inserta o reemplaza barras en ``table`` (por defecto ``prices_daily``)."""
+    table = _table(table)
     df = normalize_bars(df)
     if df.empty:
         return 0
@@ -72,8 +87,8 @@ def store_bars(
     con.register("tt_new_bars", df)
     try:
         con.execute(
-            """
-            INSERT INTO prices_daily (ticker, date, open, high, low, close, volume, source,
+            f"""
+            INSERT INTO {table} (ticker, date, open, high, low, close, volume, source,
                 adjusted)
             SELECT ticker, date, open, high, low, close, volume, source, adjusted
             FROM tt_new_bars
@@ -81,18 +96,20 @@ def store_bars(
                 open = excluded.open, high = excluded.high, low = excluded.low,
                 close = excluded.close, volume = excluded.volume, source = excluded.source,
                 adjusted = excluded.adjusted
-            """
+            """  # noqa: S608 (tabla validada por _table)
         )
     finally:
         con.unregister("tt_new_bars")
     return len(df)
 
 
-def last_dates(con: duckdb.DuckDBPyConnection, tickers: list[str]) -> dict[str, date]:
+def last_dates(
+    con: duckdb.DuckDBPyConnection, tickers: list[str], table: str = "prices_daily"
+) -> dict[str, date]:
     if not tickers:
         return {}
     rows = con.execute(
-        "SELECT ticker, max(date) FROM prices_daily "
+        f"SELECT ticker, max(date) FROM {_table(table)} "  # noqa: S608 (tabla validada)
         "WHERE ticker IN (SELECT unnest(?::VARCHAR[])) GROUP BY ticker",
         [tickers],
     ).fetchall()
@@ -100,9 +117,14 @@ def last_dates(con: duckdb.DuckDBPyConnection, tickers: list[str]) -> dict[str, 
 
 
 def load_bars(
-    con: duckdb.DuckDBPyConnection, ticker: str, start: date | None = None, end: date | None = None
+    con: duckdb.DuckDBPyConnection,
+    ticker: str,
+    start: date | None = None,
+    end: date | None = None,
+    table: str = "prices_daily",
 ) -> pd.DataFrame:
-    sql = "SELECT ticker, date, open, high, low, close, volume FROM prices_daily WHERE ticker = ?"
+    cols = "ticker, date, open, high, low, close, volume"
+    sql = f"SELECT {cols} FROM {_table(table)} WHERE ticker = ?"  # noqa: S608
     params: list[object] = [ticker.upper()]
     if start is not None:
         sql += " AND date >= ?"

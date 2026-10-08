@@ -13,6 +13,9 @@ from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PriceSourceName = Literal["massive", "tiingo", "eodhd", "alpaca", "ibkr", "csv"]
+# Para los ETFs de la rotación hacen falta precios ajustados por dividendos (retorno total):
+# Massive (solo ajusta splits) e IBKR no sirven.
+EtfPriceSourceName = Literal["tiingo", "alpaca", "eodhd", "csv"]
 
 
 class Settings(BaseSettings):
@@ -51,6 +54,8 @@ class Settings(BaseSettings):
     eodhd_api_key: SecretStr | None = None  # opcional: un mes pagado para historia larga
     alpaca_key_id: SecretStr | None = None  # gratis: historia desde 2016
     alpaca_secret_key: SecretStr | None = None
+    # Rotación de ETFs: Tiingo gratis trae historia desde ~2003 (Alpaca solo desde 2016).
+    etf_price_source: EtfPriceSourceName = "tiingo"
     benchmark_ticker: str = "SPY"
     # Secundario: las compras de insiders se concentran en empresas pequeñas; IWM controla
     # (en parte) que el exceso no sea solo "prima de tamaño".

@@ -846,12 +846,151 @@ def render_status(settings: Settings, cfg: AppConfig) -> None:
             st.error(probe.message)
 
 
+# ------------------------------------------------------------------------------ rotación ETF
+
+
+def render_etf(settings: Settings) -> None:
+    """Rotación de ETFs: veredicto, recomendación del mes y curvas del backtest (sin órdenes)."""
+    from tradingtool.config import load_etf_config
+    from tradingtool.etf.strategies import LABELS
+
+    st.subheader("Rotación de ETFs (rotacion-v1)")
+    st.caption(
+        "Una vez al mes elige entre acciones de EE. UU., de otros países desarrollados y "
+        "emergentes, solo si le ganan al efectivo; si no, se refugia en bonos del Tesoro o "
+        "efectivo. Reglas congeladas en docs/ETF-ROTACION.md."
+    )
+    try:
+        ecfg = load_etf_config(settings.config_dir)
+    except Exception as exc:  # YAML mal escrito o valores fuera de rango
+        st.error(f"Hay un error en config/etf.yaml: {exc}")
+        return
+    try:
+        with q.open_db(settings.db_path) as con:
+            state = q.etf_state(con)
+    except q.PanelDbError as exc:
+        show_db_error(exc)
+        return
+
+    verdict = state["verdict"]
+    rules = ecfg.rules_hash()
+    if not verdict or verdict.get("reglas") != rules:
+        st.info(
+            "Aún no hay backtest con estas reglas. En la terminal: "
+            "`uv run tt etf-precios` y luego `uv run tt etf-backtest`.",
+            icon=":material/info:",
+        )
+    elif verdict.get("veredicto") == "PASA":
+        st.success(
+            f"Backtest pre-registrado: PASA ({verdict.get('fecha', '')}). Siguiente paso: "
+            "seguimiento en papel. Nunca dinero real sin tu autorización escrita.",
+            icon=":material/check_circle:",
+        )
+    elif verdict.get("veredicto") == "NO PASA":
+        st.error(
+            f"Backtest pre-registrado: NO PASA ({verdict.get('fecha', '')}). Las señales "
+            "quedan solo como seguimiento en papel; no son recomendaciones.",
+            icon=":material/cancel:",
+        )
+    else:
+        st.warning(
+            f"Backtest pre-registrado: {verdict.get('veredicto', '?')}. Faltan datos para "
+            "decidir (revisa `uv run tt etf-precios`).",
+            icon=":material/warning:",
+        )
+
+    st.markdown("#### Recomendación del mes")
+    recs = state["recommendations"]
+    if recs is None or recs.empty:
+        st.caption(
+            "Todavía no hay recomendaciones guardadas. En la terminal: `uv run tt etf-senal`."
+        )
+    else:
+        last = recs.iloc[0]
+        weights = q.etf_weights(last["weights"])
+        as_of = p.fmt_date(q._to_date(last["as_of_date"]))
+        st.caption(
+            f"Con el cierre del {as_of} (se opera el primer día hábil siguiente). "
+            "Queda guardada y no se reescribe."
+        )
+        st.dataframe(
+            pd.DataFrame(
+                {
+                    "Activo": [LABELS.get(a, a) for a in weights],
+                    "Sustituto en el backtest": list(weights),
+                    "ETF UCITS (LSE, USD)": [ecfg.ucits.get(a, "?") for a in weights],
+                    "Peso": [w * 100 for w in weights.values()],
+                }
+            ).sort_values("Peso", ascending=False),
+            hide_index=True,
+            column_config={"Peso": st.column_config.NumberColumn("Peso", format="%.0f%%")},
+        )
+        if len(recs) > 1:
+            with st.expander("Historial de recomendaciones"):
+                st.dataframe(
+                    pd.DataFrame(
+                        {
+                            "Cierre de mes": [
+                                p.fmt_date(q._to_date(v)) for v in recs["as_of_date"]
+                            ],
+                            "Cartera": [
+                                ", ".join(
+                                    f"{a} {w:.0%}"
+                                    for a, w in sorted(
+                                        q.etf_weights(x).items(), key=lambda kv: -kv[1]
+                                    )
+                                )
+                                for x in recs["weights"]
+                            ],
+                            "Reglas": recs["rules_hash"],
+                        }
+                    ),
+                    hide_index=True,
+                )
+
+    st.markdown("#### Backtest: validación 2015–2024")
+    curves = q.etf_curves(settings.data_dir / "etf" / "curvas_validacion.csv")
+    if curves.empty:
+        st.caption("Sin curvas todavía: aparecen al correr `uv run tt etf-backtest`.")
+        return
+    dark = is_dark_theme()
+    growth = charts.etf_curves_chart(curves, "valor", dark=dark)
+    drawdown = charts.etf_curves_chart(curves, "caida", dark=dark, height=220)
+    if growth is not None:
+        st.altair_chart(growth, width="stretch")
+    if drawdown is not None:
+        st.altair_chart(drawdown, width="stretch")
+    st.caption(
+        "Neto de costos (cuenta supuesta de US$5.000), sin impuestos. Gráficos con datos "
+        "semanales; la tabla trae los valores exactos. Rendimientos pasados no garantizan "
+        "rendimientos futuros."
+    )
+    summary = q.curves_summary(curves)
+    st.dataframe(
+        summary,
+        hide_index=True,
+        column_config={
+            "Rinde/año": st.column_config.NumberColumn("Rinde/año", format="percent"),
+            "Peor caída": st.column_config.NumberColumn("Peor caída", format="percent"),
+            "US$1.000 →": st.column_config.NumberColumn("US$1.000 →", format="dollar"),
+        },
+    )
+    with st.expander("Ver por año (tabla)"):
+        yearly = q.curves_yearly(curves)
+        st.dataframe(
+            yearly,
+            column_config={
+                c: st.column_config.NumberColumn(c, format="percent") for c in yearly.columns
+            },
+        )
+
+
 # ------------------------------------------------------------------------------ main
 
 
 def main() -> None:
-    st.set_page_config(page_title="Panel de insiders", layout="wide")
-    st.title("Panel de compras de insiders")
+    st.set_page_config(page_title="Panel de inversión", layout="wide")
+    st.title("Panel de apoyo a decisiones")
     st.warning(p.NO_ORDERS_BANNER, icon=":material/block:")
     st.caption(p.HONESTY_NOTE)
 
@@ -869,9 +1008,11 @@ def main() -> None:
     if not settings.db_path.exists():
         render_onboarding()
 
-    tab_ideas, tab_journal, tab_calc, tab_status = st.tabs(
-        ["Ideas", "Diario y resultados", "Calculadora", "Estado"]
+    tab_etf, tab_ideas, tab_journal, tab_calc, tab_status = st.tabs(
+        ["Rotación ETF", "Ideas (insiders)", "Diario y resultados", "Calculadora", "Estado"]
     )
+    with tab_etf:
+        render_etf(settings)
     with tab_ideas:
         render_ideas(settings, cfg)
     with tab_journal:

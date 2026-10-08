@@ -24,6 +24,7 @@ from tradingtool.ui.queries import GROUP_ORDER
 class Palette:
     series1: str  # azul
     series2: str  # naranja
+    series3: str  # aqua (validado con los dos primeros en ambos modos; ver rotación ETF)
     surface: str
     ink_secondary: str
     muted: str
@@ -33,6 +34,7 @@ class Palette:
 LIGHT = Palette(
     series1="#2a78d6",
     series2="#eb6834",
+    series3="#1baf7a",
     surface="#fcfcfb",
     ink_secondary="#52514e",
     muted="#898781",
@@ -41,6 +43,7 @@ LIGHT = Palette(
 DARK = Palette(
     series1="#3987e5",
     series2="#d95926",
+    series3="#199e70",
     surface="#1a1a19",
     ink_secondary="#c3c2b7",
     muted="#898781",
@@ -209,3 +212,103 @@ def outcome_chart(
     )
     height = 64 * len(groups) + 20
     return alt.layer(zero, bars, label_pos, label_neg).properties(height=height)
+
+
+# ------------------------------------------------------------------------------ rotación de ETFs
+
+
+def curves_long(curves: pd.DataFrame, kind: str = "valor", start_value: float = 1_000.0):
+    """Curvas diarias (columnas = estrategias, valor 1 al inicio) a formato largo semanal.
+
+    ``kind="valor"``: valor de ``start_value`` invertidos al inicio (último dato de la semana).
+    ``kind="caida"``: caída desde el máximo (el peor dato de la semana, para no esconder fondos).
+    Semanal para que el gráfico sea liviano; la tabla del panel trae los números exactos.
+    """
+    if curves is None or curves.empty:
+        return pd.DataFrame(columns=["fecha", "serie", "k", "valor"])
+    df = curves.copy()
+    df.index = pd.to_datetime(df.index)
+    df = df.sort_index().ffill()
+    if kind == "caida":
+        df = df / df.cummax() - 1.0
+        weekly = df.resample("W-FRI").min()
+    else:
+        weekly = df.resample("W-FRI").last() * start_value
+    weekly = weekly.dropna(how="all")
+    keys = {name: f"s{i + 1}" for i, name in enumerate(df.columns)}
+    long = weekly.reset_index(names="fecha").melt(
+        id_vars="fecha", var_name="serie", value_name="valor"
+    )
+    long["k"] = long["serie"].map(keys)
+    return long.dropna(subset=["valor"])
+
+
+def etf_curves_chart(
+    curves: pd.DataFrame, kind: str = "valor", *, dark: bool = False, height: int = 300
+) -> alt.LayerChart | None:
+    """Líneas (máx. 3 series, una sola escala) con línea vertical y tooltip de todas las series.
+
+    Colores por identidad y orden fijo: 1 = estrategia, 2 = comprar y mantener, 3 = 60/40.
+    """
+    long = curves_long(curves, kind)
+    if long.empty:
+        return None
+    pal = palette(dark)
+    names = list(dict.fromkeys(long["serie"]))[:3]
+    long = long[long["serie"].isin(names)]
+    colors = [pal.series1, pal.series2, pal.series3][: len(names)]
+    is_dd = kind == "caida"
+    y_title = "Caída desde el máximo" if is_dd else "Valor de US$1.000 invertidos al inicio"
+    y_fmt = ".0%" if is_dd else "$,.0f"
+    tip_fmt = ".1%" if is_dd else "$,.0f"
+    x = alt.X("fecha:T", title=None, axis=alt.Axis(format="%Y", labelOverlap=True, grid=False))
+    y = alt.Y(
+        "valor:Q",
+        title=y_title,
+        axis=alt.Axis(format=y_fmt, gridColor=pal.baseline, gridOpacity=0.5, domain=False),
+        scale=alt.Scale(zero=is_dd),
+    )
+    scale = alt.Scale(domain=names, range=colors)
+    color = alt.Color(
+        "serie:N",
+        scale=scale,
+        legend=alt.Legend(title=None, orient="top", symbolType="stroke", labelLimit=320),
+    )
+    lines = (
+        alt.Chart(long)
+        .mark_line(strokeWidth=2, strokeCap="round", strokeJoin="round")
+        .encode(x=x, y=y, color=color)
+    )
+    hover = alt.selection_point(
+        fields=["fecha"], nearest=True, on="pointerover", empty=False, clear="pointerout"
+    )
+    keys = dict(zip(long["serie"], long["k"], strict=False))
+    tooltip = [alt.Tooltip("fecha:T", title="Semana al", format="%d/%m/%Y")] + [
+        alt.Tooltip(f"{keys[n]}:Q", title=n, format=tip_fmt) for n in names
+    ]
+    rule = (
+        alt.Chart(long)
+        .transform_pivot("k", value="valor", groupby=["fecha"])
+        .mark_rule(color=pal.muted, strokeWidth=1)
+        .encode(
+            x="fecha:T",
+            opacity=alt.condition(hover, alt.value(1), alt.value(0)),
+            tooltip=tooltip,
+        )
+        .add_params(hover)
+    )
+    points = (
+        alt.Chart(long)
+        .mark_point(filled=True, size=70, stroke=pal.surface, strokeWidth=2, opacity=1)
+        .encode(x="fecha:T", y="valor:Q", color=alt.Color("serie:N", scale=scale, legend=None))
+        .transform_filter(hover)
+    )
+    layers: list[alt.Chart] = [lines, rule, points]
+    if is_dd:
+        zero = (
+            alt.Chart(pd.DataFrame({"valor": [0.0]}))
+            .mark_rule(color=pal.baseline, strokeWidth=1)
+            .encode(y="valor:Q")
+        )
+        layers.insert(0, zero)
+    return alt.layer(*layers).properties(height=height)

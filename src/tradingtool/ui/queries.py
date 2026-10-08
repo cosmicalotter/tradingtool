@@ -719,3 +719,90 @@ def record_panel_decision(
         raise DecisionInputError(
             "Esa idea ya no existe en la base (¿se volvió a generar?). Recarga la página."
         ) from exc
+
+
+# ------------------------------------------------------------------------------ rotación de ETFs
+
+
+def etf_state(con: duckdb.DuckDBPyConnection, limit: int = 24) -> dict[str, Any]:
+    """Veredicto guardado y últimas recomendaciones de la rotación (sin escribir nada).
+
+    Si la base es anterior a la rotación (faltan tablas), devuelve todo vacío.
+    """
+    out: dict[str, Any] = {"verdict": None, "recommendations": pd.DataFrame(), "coverage": None}
+    row = con.execute("SELECT value FROM meta WHERE key = 'etf_veredicto'").fetchone()
+    if row:
+        loaded = _loads(row[0])
+        out["verdict"] = loaded if isinstance(loaded, dict) else None
+    try:
+        out["recommendations"] = con.execute(
+            "SELECT as_of_date, strategy_version, rules_hash, weights, created_at "
+            "FROM etf_recommendations ORDER BY as_of_date DESC, created_at DESC LIMIT ?",
+            [limit],
+        ).df()
+        cov = con.execute(
+            "SELECT count(DISTINCT ticker), min(date), max(date) FROM etf_prices_daily"
+        ).fetchone()
+        out["coverage"] = {"tickers": cov[0], "first": _to_date(cov[1]), "last": _to_date(cov[2])}
+    except duckdb.CatalogException:
+        pass
+    return out
+
+
+def etf_weights(value: Any) -> dict[str, float]:
+    """Pesos guardados (JSON) como dict; vacío si no se pueden leer."""
+    loaded = _loads(value)
+    if not isinstance(loaded, dict):
+        return {}
+    out = {}
+    for k, v in loaded.items():
+        try:
+            out[str(k)] = float(v)
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def etf_curves(path: Path) -> pd.DataFrame:
+    """Curvas del último ``tt etf-backtest`` (CSV); vacío si no existe o está dañado."""
+    if not path.exists():
+        return pd.DataFrame()
+    try:
+        df = pd.read_csv(path, index_col="fecha", parse_dates=["fecha"])
+    except (OSError, ValueError, pd.errors.ParserError):
+        return pd.DataFrame()
+    return df.apply(pd.to_numeric, errors="coerce").dropna(how="all")
+
+
+def curves_summary(curves: pd.DataFrame) -> pd.DataFrame:
+    """Tabla gemela de los gráficos: rendimiento anual compuesto, peor caída y valor final."""
+    rows = []
+    if curves is None or curves.empty:
+        return pd.DataFrame(columns=["Estrategia", "Rinde/año", "Peor caída", "US$1.000 →"])
+    years = (curves.index[-1] - curves.index[0]).days / 365.25
+    for name in curves.columns:
+        s = curves[name].dropna()
+        if s.empty:
+            continue
+        growth = s.iloc[-1] / s.iloc[0]
+        rows.append(
+            {
+                "Estrategia": name,
+                "Rinde/año": growth ** (1 / years) - 1 if years > 0 else math.nan,
+                "Peor caída": float((s / s.cummax() - 1).min()),
+                "US$1.000 →": 1_000 * growth,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def curves_yearly(curves: pd.DataFrame) -> pd.DataFrame:
+    """Retorno por año calendario de cada curva (el primer año se mide desde la base)."""
+    if curves is None or len(curves) < 2:
+        return pd.DataFrame()
+    rest = curves.iloc[1:]  # el primer punto es la base (cierre previo al periodo)
+    ends = rest.groupby(rest.index.year).last()
+    full = pd.concat([curves.iloc[[0]].set_axis([ends.index[0] - 1]), ends])
+    yearly = full.pct_change().iloc[1:]
+    yearly.index.name = "Año"
+    return yearly

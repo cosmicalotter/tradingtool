@@ -12,6 +12,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import duckdb
+import numpy as np
 import pandas as pd
 import pytest
 from streamlit.testing.v1 import AppTest
@@ -785,7 +786,7 @@ def test_app_without_db_shows_onboarding(monkeypatch, data_dirs):
     text = _texts(at)
     assert "uv run tt iniciar" in text
     assert "NO envía órdenes" in text
-    assert len(at.tabs) == 4
+    assert len(at.tabs) == 5
     assert not (data_dir / "tradingtool.duckdb").exists()  # el panel no crea la base
 
 
@@ -943,7 +944,7 @@ def test_app_db_locked_by_other_connection(monkeypatch, data_dirs):
         at = _run_app(monkeypatch, data_dir, config_dir)
         assert not at.exception
         busy = [str(w.value) for w in at.warning if "ocupada" in str(w.value)]
-        assert len(busy) == 3  # Ideas, Diario y Estado
+        assert len(busy) == 4  # Rotación ETF, Ideas, Diario y Estado
         assert not any("Traceback" in t or "IOException" in t for t in busy)
     finally:
         writer.close()
@@ -1083,3 +1084,78 @@ def test_app_with_tiny_risk_config(monkeypatch, data_dirs):
     at = _run_app(monkeypatch, data_dir, config_dir)
     assert not at.exception
     assert at.number_input(key="calc_riesgo").value == pytest.approx(0.005)
+
+
+# ------------------------------------------------------------------------------ rotación ETF
+
+
+def _etf_curves(n_days: int = 600) -> pd.DataFrame:
+    idx = pd.bdate_range("2014-12-31", periods=n_days)
+    growth = np.linspace(1.0, 1.4, n_days)
+    dip = np.where((np.arange(n_days) > 200) & (np.arange(n_days) < 260), 0.85, 1.0)
+    return pd.DataFrame(
+        {
+            "★ Rotación rotacion-v1 (momentum 1-3-6-12)": growth,
+            "Comprar y mantener SPY": growth * dip,
+            "60/40 SPY/IEF": np.linspace(1.0, 1.25, n_days),
+        },
+        index=idx,
+    ).rename_axis("fecha")
+
+
+def test_etf_chart_helpers():
+    curves = _etf_curves()
+    long = charts.curves_long(curves, "valor")
+    assert set(long["k"]) == {"s1", "s2", "s3"}
+    assert long["valor"].iloc[0] == pytest.approx(1_000.0, rel=0.01)
+    dd = charts.curves_long(curves, "caida")
+    assert dd["valor"].min() == pytest.approx(-0.15, abs=0.01)  # el fondo semanal no se pierde
+    for kind in ("valor", "caida"):
+        spec = charts.etf_curves_chart(curves, kind, dark=kind == "caida").to_dict()
+        assert spec["layer"]
+    assert charts.etf_curves_chart(pd.DataFrame(), "valor") is None
+    summary = q.curves_summary(curves)
+    assert list(summary["Estrategia"]) == list(curves.columns)
+    assert summary.loc[1, "Peor caída"] == pytest.approx(-0.15, abs=0.01)
+    yearly = q.curves_yearly(curves)
+    assert list(yearly.index) == [2015, 2016, 2017]  # la base (2014-12-31) no cuenta como año
+
+
+def test_app_etf_tab_shows_verdict_recommendation_and_curves(monkeypatch, data_dirs):
+    from tradingtool.config import EtfConfig
+
+    data_dir, config_dir = data_dirs
+    db_path = _make_db(data_dir, with_data=False)
+    rules = EtfConfig().rules_hash()
+    con = connect(db_path)
+    con.execute(
+        "INSERT INTO meta VALUES ('etf_veredicto', ?)",
+        [json.dumps({"veredicto": "NO PASA", "reglas": rules, "fecha": "2026-10-08 10:00"})],
+    )
+    for as_of, w in (("2026-08-31", {"SPY": 1.0}), ("2026-09-30", {"SPY": 0.75, "IEF": 0.25})):
+        con.execute(
+            "INSERT INTO etf_recommendations (as_of_date, strategy_version, rules_hash, weights) "
+            "VALUES (?, 'rotacion-v1', ?, ?)",
+            [as_of, rules, json.dumps(w)],
+        )
+    con.close()
+    (data_dir / "etf").mkdir(parents=True)
+    _etf_curves().to_csv(data_dir / "etf" / "curvas_validacion.csv")
+    at = _run_app(monkeypatch, data_dir, config_dir)
+    assert not at.exception
+    text = _texts(at)
+    assert "NO PASA" in text
+    assert "Recomendación del mes" in text and "2026-09-30" in text
+    frames = [e.value for e in at.dataframe]
+    assert any("VUAA" in df.to_string() for df in frames)  # ticker UCITS sugerido
+    assert len(at.get("vega_lite_chart")) >= 2  # crecimiento y caídas
+
+
+def test_app_etf_tab_without_backtest_explains_next_step(monkeypatch, data_dirs):
+    data_dir, config_dir = data_dirs
+    _make_db(data_dir, with_data=False)
+    at = _run_app(monkeypatch, data_dir, config_dir)
+    assert not at.exception
+    text = _texts(at)
+    assert "uv run tt etf-backtest" in text
+    assert "uv run tt etf-senal" in text

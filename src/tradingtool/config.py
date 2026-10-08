@@ -6,11 +6,12 @@ ejecución para poder reproducir cualquier resultado.
 
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from tradingtool.ids import stable_hash
 
@@ -167,6 +168,95 @@ class AppConfig(_Strict):
 
     def screener_hash(self) -> str:
         return stable_hash(self.screener.model_dump(mode="json"))
+
+
+# ---------------------------------------------------------------- rotación de ETFs
+
+
+class EtfCostsCfg(_Strict):
+    # IBKR Pro "tiered" en la Bolsa de Londres para ETF UCITS en USD (verificar en IBKR):
+    # 0,05% del valor con mínimo ~US$1,70 por orden, más bolsa y compensación (~US$0,20).
+    min_fee_usd: float = Field(1.90, ge=0)
+    fee_rate: float = Field(0.0005, ge=0, le=0.01)
+    # Spread + deslizamiento por lado. Los UCITS tienen spreads algo mayores que sus pares
+    # de EE. UU.: conservador a propósito.
+    slippage_bps: float = Field(10.0, ge=0, le=200)
+    # Tamaño de cuenta supuesto para convertir la comisión mínima fija en porcentaje.
+    capital_usd: float = Field(5_000, gt=0)
+    sensitivity_capitals_usd: tuple[float, ...] = (1_000, 5_000, 20_000)
+
+
+class EtfVerdictCfg(_Strict):
+    max_drawdown_ratio: float = Field(0.6, gt=0, le=1)  # peor caída ≤ 60% de la de SPY
+    min_neighbors_pass: int = Field(4, ge=0)  # de las 6 variantes vecinas
+    min_validation_months: int = Field(96, ge=12)
+    bootstrap_samples: int = Field(2000, ge=100)
+    bootstrap_block_months: int = Field(6, ge=1)
+    seed: int = 7
+
+
+class EtfConfig(_Strict):
+    """Reglas de la rotación de ETFs (pre-registro en docs/ETF-ROTACION.md)."""
+
+    strategy_version: str = "rotacion-v1"
+    risk_assets: tuple[str, ...] = ("SPY", "EFA", "EEM")
+    defensive_assets: tuple[str, ...] = ("IEF", "CASH")
+    cash_asset: str = "CASH"
+    horizons_months: tuple[int, ...] = (1, 3, 6, 12)
+    execution_lag_days: int = Field(1, ge=1, le=20)
+    rebalance_band: float = Field(0.05, ge=0, lt=0.5)
+    benchmark: str = "SPY"
+    balanced_benchmark: dict[str, float] = {"SPY": 0.6, "IEF": 0.4}
+    data_start: date = date(2000, 1, 1)
+    costs: EtfCostsCfg = EtfCostsCfg()
+    verdict: EtfVerdictCfg = EtfVerdictCfg()
+    # Solo para mostrar (no cambian resultados, no entran en el hash de reglas):
+    monthly_contribution_usd: float = Field(400, ge=0)
+    ucits: dict[str, str] = {
+        "SPY": "VUAA",
+        "EFA": "EXUS",
+        "EEM": "EIMI",
+        "IEF": "CBU0",
+        "CASH": "IB01",
+    }
+
+    @field_validator("risk_assets", "defensive_assets", "horizons_months")
+    @classmethod
+    def _non_empty_unique(cls, v: tuple) -> tuple:
+        if not v or len(set(v)) != len(v):
+            raise ValueError("debe tener al menos un elemento y sin repetidos")
+        return v
+
+    @field_validator("horizons_months")
+    @classmethod
+    def _positive(cls, v: tuple[int, ...]) -> tuple[int, ...]:
+        if any(h < 1 or h > 24 for h in v):
+            raise ValueError("los horizontes van de 1 a 24 meses")
+        return v
+
+    @model_validator(mode="after")
+    def _consistent(self) -> EtfConfig:
+        if self.cash_asset in self.risk_assets:
+            raise ValueError("el efectivo no puede ser un activo de riesgo")
+        if set(self.risk_assets) & set(self.defensive_assets):
+            raise ValueError("un activo no puede ser de riesgo y defensivo a la vez")
+        if abs(sum(self.balanced_benchmark.values()) - 1.0) > 1e-9:
+            raise ValueError("los pesos del portafolio balanceado deben sumar 1")
+        return self
+
+    def rules_hash(self) -> str:
+        """Huella de todo lo que cambia resultados (excluye nombres UCITS y aportes)."""
+        return stable_hash(
+            self.model_dump(mode="json", exclude={"ucits", "monthly_contribution_usd"})
+        )
+
+
+def load_etf_config(config_dir: Path | str) -> EtfConfig:
+    path = Path(config_dir) / "etf.yaml"
+    if not path.exists():
+        return EtfConfig()
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    return EtfConfig.model_validate(data)
 
 
 _FILES = {

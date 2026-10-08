@@ -9,6 +9,7 @@ Objetivo: **US$0 al mes** en la herramienta mientras se investiga. Cada costo pu
 | Datos de insiders (Form 4) | SEC EDGAR + datasets trimestrales | **Gratis** (máx. 10 solicitudes/s, exige nombre y correo) |
 | Precios diarios | Plan gratuito de Massive (antes Polygon): todo el mercado por día, una llamada | **Gratis**. Límite de llamadas por minuto e historia de ~2 años (verificar con tu clave) |
 | Precios alternativos | Tiingo (gratis con límites) o históricos de IBKR | Gratis |
+| Rotación de ETFs | Tiingo gratis (50 consultas/hora, 500 símbolos/mes; la rotación usa 7) + tasa del Tesoro de FRED (sin clave) | **Gratis** |
 | Datos en tiempo real de IBKR | **No hace falta** (la estrategia usa datos de cierre) | US$0 |
 | LLM | **No se usa en v1** (reglas fijas). Si se agrega: Gemini con tus créditos de Vertex, o un modelo local | US$0 |
 | Servidor/VPS | No hace falta: corre en tu computador ~10 min al día | US$0 |
@@ -55,6 +56,16 @@ Supuesto: US$400 al mes, solo costos fijos (US$3 de ARQ + ~US$1,9 de comisión p
 | Trimestral | US$1.200 | US$4,9 | **0,41%** |
 
 **Recomendación:** juntar los aportes en COP (en una cuenta de alto rendimiento líquida) y enviar y comprar **cada 2 o 3 meses**.
+
+### Rotación de ETFs: cuánto cuesta cada cambio (modelo en `config/etf.yaml`)
+
+- **Por orden en IBKR, Bolsa de Londres (ETF UCITS en USD):** el mayor entre ~US$1,90 y 0,05% del valor. Son ~US$1,70 del plan *tiered* más tasas de bolsa y compensación; verifícalo en IBKR.
+- **Spread y deslizamiento:** 10 pb por lado, conservador.
+- **Cada cambio de un 25% de la cartera son 2 órdenes** (vender y comprar):
+  - con una cuenta de **US$1.000**: ~0,8% de la cartera por cambio;
+  - con **US$5.000**: ~0,13%.
+- `tt etf-backtest` muestra el rendimiento con cuentas de US$1.000, US$5.000 y US$20.000. Con cuentas chicas, la comisión mínima pesa mucho.
+- **Truco:** usa el aporte mensual para comprar lo que falta, en vez de vender y volver a comprar.
 
 ### Por qué el satélite activo necesita más capital
 

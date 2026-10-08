@@ -14,6 +14,8 @@ Las claves de API viajan en cabeceras HTTP (nunca en la URL, para que no queden 
 from __future__ import annotations
 
 import logging
+import time
+from collections import deque
 from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -38,6 +40,44 @@ def _ms_to_ny_date(ms: int | float) -> date:
     return datetime.fromtimestamp(float(ms) / 1000.0, UTC).astimezone(NY).date()
 
 
+class BurstRateLimiter:
+    """Permite hasta ``max_calls`` llamadas en cualquier ventana de ``period`` segundos.
+
+    A diferencia de :class:`RateLimiter` no espacia las llamadas: con planes limitados por
+    hora (Tiingo gratis: 50/hora) unas pocas descargas salen de inmediato en vez de esperar
+    72 segundos entre cada una. Solo espera si se agota el cupo de la ventana.
+    """
+
+    def __init__(
+        self,
+        max_calls: int,
+        period: float,
+        clock: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], None] = time.sleep,
+    ):
+        if max_calls < 1 or period <= 0:
+            raise ValueError("max_calls debe ser ≥ 1 y period > 0")
+        self.max_calls = max_calls
+        self.period = period
+        self._clock = clock
+        self._sleep = sleep
+        self._calls: deque[float] = deque()
+
+    def wait(self) -> None:
+        now = self._clock()
+        while self._calls and now - self._calls[0] >= self.period:
+            self._calls.popleft()
+        if len(self._calls) >= self.max_calls:
+            delay = self.period - (now - self._calls[0])
+            if delay > 0:
+                log.warning("Cupo de consultas agotado: esperando %.0f s", delay)
+                self._sleep(delay)
+                now = self._clock()
+            while self._calls and now - self._calls[0] >= self.period:
+                self._calls.popleft()
+        self._calls.append(now)
+
+
 class _HttpJsonClient:
     def __init__(
         self,
@@ -47,11 +87,10 @@ class _HttpJsonClient:
         sleep: Callable[[float], None] | None = None,
         max_retries: int = 3,
         timeout: float = 30.0,
+        limiter: RateLimiter | BurstRateLimiter | None = None,
     ):
-        import time
-
         self._sleep = sleep or time.sleep
-        self.limiter = RateLimiter(max_per_second, sleep=self._sleep)
+        self.limiter = limiter or RateLimiter(max_per_second, sleep=self._sleep)
         self.max_retries = max_retries
         self._http = httpx.Client(headers=headers, transport=transport, timeout=timeout)
 
@@ -88,6 +127,11 @@ class _HttpJsonClient:
                 wait = 15.0 * (attempt + 1)  # límites por minuto: esperar en serio
                 log.warning("Reintentando %s en %.0fs (%r)", url, wait, last)
                 self._sleep(wait)
+        if isinstance(last, PriceSourceError) and "429" in str(last):
+            raise PriceSourceError(
+                "El proveedor limitó las consultas (429): agotaste el cupo de tu plan por ahora. "
+                "Espera (Tiingo gratis: 50 consultas por hora) y vuelve a intentarlo."
+            )
         raise PriceSourceError(f"Fallaron los reintentos para {url}: {last!r}")
 
 
@@ -173,13 +217,18 @@ class TiingoSource:
         sleep: Callable[[float], None] | None = None,
     ):
         if not api_key:
-            raise PriceSourceError("Falta TT_TIINGO_API_KEY en tu .env.")
+            raise PriceSourceError(
+                "Falta TT_TIINGO_API_KEY en tu .env (la clave gratuita de tiingo.com sirve)."
+            )
         self.base_url = base_url.rstrip("/")
+        sleep = sleep or time.sleep
         self._client = _HttpJsonClient(
             {"Authorization": f"Token {api_key}", "Content-Type": "application/json"},
             max_per_second=requests_per_hour / 3600.0,
             transport=transport,
             sleep=sleep,
+            # Ráfagas permitidas dentro del cupo por hora, con 10% de margen.
+            limiter=BurstRateLimiter(max(1, int(requests_per_hour * 0.9)), 3600.0, sleep=sleep),
         )
 
     def daily_bars(self, ticker: str, start: date, end: date) -> pd.DataFrame:

@@ -68,7 +68,7 @@ def _edgar(settings: Settings):
         raise typer.Exit(2) from exc
 
 
-def _price_source(settings: Settings, broker=None):
+def _price_source(settings: Settings, broker=None, name: str | None = None):
     from tradingtool.prices.sources import (
         AlpacaSource,
         CsvSource,
@@ -78,7 +78,7 @@ def _price_source(settings: Settings, broker=None):
         TiingoSource,
     )
 
-    name = settings.price_source
+    name = name or settings.price_source
     if name == "massive":
         key = settings.massive_api_key.get_secret_value() if settings.massive_api_key else ""
         return MassiveSource(key)
@@ -335,10 +335,18 @@ def _sync_prices(settings: Settings, cfg: AppConfig, start: date, end: date) -> 
         con.close()
 
 
-def _auth_hint(settings: Settings) -> str:
+def _auth_hint(settings: Settings, source: str | None = None) -> str:
     """Pistas para claves rechazadas, sin mostrar nunca las claves."""
-    if settings.price_source != "alpaca":
-        return f"Revisa la clave de {settings.price_source} en tu .env."
+    source = source or settings.price_source
+    if source == "tiingo":
+        key = settings.tiingo_api_key.get_secret_value().strip() if settings.tiingo_api_key else ""
+        return (
+            "Tiingo rechazó la clave. Revisa TT_TIINGO_API_KEY en tu .env "
+            f"({len(key)} caracteres; suele tener 40). La encuentras en tiingo.com → "
+            "menú de tu cuenta → API → Token."
+        )
+    if source != "alpaca":
+        return f"Revisa la clave de {source} en tu .env."
     kid = settings.alpaca_key_id.get_secret_value().strip() if settings.alpaca_key_id else ""
     sec = (
         settings.alpaca_secret_key.get_secret_value().strip() if settings.alpaca_secret_key else ""
@@ -641,6 +649,213 @@ def evaluar(
             y.add_row(str(r.year), str(r.n), pct(r.exceso_neto_medio), f"{r.aciertos:.0%}")
         console.print(y)
     console.print(f"[bold]Veredicto:[/bold] {rep.verdict}")
+
+
+# ---------------------------------------------------------------- rotación de ETFs
+
+
+def _etf_ctx():
+    from tradingtool.config import load_etf_config
+
+    settings, _ = _ctx()
+    return settings, load_etf_config(settings.config_dir)
+
+
+def _etf_source(settings: Settings):
+    from tradingtool.prices.base import PriceSourceError
+
+    try:
+        return _price_source(settings, name=settings.etf_price_source)
+    except PriceSourceError as exc:
+        console.print(f"[red]{exc}[/red]")
+        if settings.etf_price_source == "tiingo":
+            console.print(
+                "Crea una cuenta gratuita en tiingo.com, copia tu token (menú de la cuenta → API) "
+                "y ponlo en .env como TT_TIINGO_API_KEY=... (sin comillas ni espacios)."
+            )
+        raise typer.Exit(2) from exc
+
+
+def _refresh_etf_data(settings: Settings, tickers: list[str]) -> None:
+    """Re-descarga la historia completa de ``tickers`` y del efectivo (FRED)."""
+    from tradingtool.etf.data import refresh_cash, refresh_etfs
+    from tradingtool.prices.base import PriceSourceAuthError, PriceSourceError
+
+    src = _etf_source(settings)
+    if settings.etf_price_source == "alpaca":
+        console.print(
+            "[yellow]Alpaca solo trae historia desde 2016: alcanza para la señal mensual, "
+            "no para el backtest (usa Tiingo para eso).[/yellow]"
+        )
+    con = connect(settings.db_path)
+    try:
+        st = refresh_etfs(con, src, tickers, date(2000, 1, 1), date.today())
+        for e in st.errors:
+            console.print(f"[yellow]  {e}[/yellow]")
+        console.print(f"ETFs ({src.name}): {len(st.rows)} de {len(tickers)} actualizados")
+        try:
+            n = refresh_cash(con)
+            console.print(f"Efectivo (FRED, letras del Tesoro a 3 meses): {n:,} días")
+        except PriceSourceError as exc:
+            console.print(f"[red]Efectivo (FRED): {exc}[/red]")
+    except PriceSourceAuthError as exc:
+        console.print(f"[red]{exc}.[/red]")
+        console.print(_auth_hint(settings, settings.etf_price_source))
+        raise typer.Exit(1) from None
+    finally:
+        con.close()
+
+
+def pd_date(x) -> str:
+    """Fecha corta AAAA-MM-DD (DuckDB entrega fechas como Timestamp de pandas)."""
+    return str(x)[:10]
+
+
+@app.command("etf-precios")
+def etf_precios() -> None:
+    """Descarga la historia completa de los ETFs de la rotación y la tasa del Tesoro (FRED)."""
+    from tradingtool.etf.data import coverage, data_warnings
+    from tradingtool.etf.strategies import required_tickers
+
+    settings, ecfg = _etf_ctx()
+    tickers = required_tickers(ecfg)
+    _refresh_etf_data(settings, tickers)
+    con = connect(settings.db_path)
+    try:
+        cov = coverage(con)
+        warnings = data_warnings(con, [*tickers, ecfg.cash_asset])
+    finally:
+        con.close()
+    t = Table(title="Datos de la rotación de ETFs")
+    for c in ("Ticker", "Fuente", "Desde", "Hasta", "Días"):
+        t.add_column(c)
+    for r in cov.itertuples():
+        t.add_row(
+            r.ticker,
+            str(r.fuente),
+            f"{pd_date(r.desde)}",
+            f"{pd_date(r.hasta)}",
+            f"{r.filas:,}",
+        )
+    console.print(t)
+    for w in warnings:
+        console.print(f"[yellow]Aviso: {w}[/yellow]")
+    console.print("Siguiente paso: [bold]uv run tt etf-backtest[/bold]")
+
+
+@app.command("etf-backtest")
+def etf_backtest(
+    periodo: Annotated[
+        str, typer.Option(help="validacion (veredicto) | diseno | todo | reserva")
+    ] = "validacion",
+    abrir_reserva: Annotated[
+        bool,
+        typer.Option(help="Abre la reserva (desde 2025-01-01) UNA vez. Queda registrado."),
+    ] = False,
+) -> None:
+    """Backtest pre-registrado de la rotación de ETFs (docs/ETF-ROTACION.md). Sin órdenes."""
+    from tradingtool.etf.data import data_warnings, load_panel
+    from tradingtool.etf.live import save_verdict
+    from tradingtool.etf.report import (
+        ETF_PERIODS,
+        ETF_RESERVE_FLAG,
+        VALIDATION_END,
+        EtfDataError,
+        run_report,
+    )
+    from tradingtool.etf.strategies import required_tickers
+    from tradingtool.etf.views import print_report
+
+    settings, ecfg = _etf_ctx()
+    if periodo not in ETF_PERIODS:
+        raise typer.BadParameter(f"periodo debe ser uno de {list(ETF_PERIODS)}")
+    tickers = [*required_tickers(ecfg), ecfg.cash_asset]
+    con = connect(settings.db_path)
+    try:
+        opened = con.execute("SELECT value FROM meta WHERE key = ?", [ETF_RESERVE_FLAG]).fetchone()
+        if periodo == "reserva" and not opened:
+            if not abrir_reserva:
+                console.print(
+                    "[red]La reserva (desde 2025-01-01) está bloqueada.[/red] Ábrela UNA sola "
+                    "vez, al final, con --abrir-reserva (queda registrado)."
+                )
+                raise typer.Exit(2)
+            con.execute(
+                "INSERT INTO meta VALUES (?, ?) ON CONFLICT (key) DO NOTHING",
+                [ETF_RESERVE_FLAG, f"{datetime.now():%Y-%m-%d %H:%M} reglas {ecfg.rules_hash()}"],
+            )
+            console.print("[yellow]Reserva abierta y registrada.[/yellow]")
+        end = None if periodo == "reserva" else VALIDATION_END
+        prices = load_panel(con, tickers, end=end)
+        warnings = data_warnings(con, tickers)
+        try:
+            rep = run_report(prices, ecfg, periodo)
+        except EtfDataError as exc:
+            console.print(f"[red]{exc}[/red]")
+            for w in warnings:
+                console.print(f"[yellow]Aviso: {w}[/yellow]")
+            raise typer.Exit(1) from None
+        if periodo == "validacion" and rep.verdict:
+            save_verdict(
+                con,
+                {
+                    "veredicto": rep.verdict,
+                    "reglas": rep.rules_hash,
+                    "estrategia": ecfg.strategy_version,
+                    "fecha": f"{datetime.now():%Y-%m-%d %H:%M}",
+                },
+            )
+    finally:
+        con.close()
+    rep.warnings = [*warnings, *rep.warnings]
+    out_dir = settings.data_dir / "etf"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    csv_path = out_dir / f"curvas_{periodo}.csv"
+    if not rep.curves.empty:
+        rep.curves.to_csv(csv_path, index_label="fecha")
+    print_report(console, rep, ecfg, str(csv_path) if not rep.curves.empty else "")
+
+
+@app.command("etf-senal")
+def etf_senal(
+    capital: Annotated[
+        float | None, typer.Option(help="Valor de tu cartera en USD, para calcular montos")
+    ] = None,
+    sin_descargar: Annotated[
+        bool, typer.Option(help="No actualizar precios (usa los ya guardados)")
+    ] = False,
+) -> None:
+    """Recomendación del mes de la rotación de ETFs. Se guarda y NO envía órdenes."""
+    from tradingtool.etf.data import load_panel
+    from tradingtool.etf.live import (
+        compute_signal,
+        previous_recommendation,
+        record_recommendation,
+        stored_verdict,
+    )
+    from tradingtool.etf.report import EtfDataError
+    from tradingtool.etf.views import print_signal
+
+    settings, ecfg = _etf_ctx()
+    assets = list(dict.fromkeys([*ecfg.risk_assets, *ecfg.defensive_assets]))
+    tickers = [a for a in assets if a != ecfg.cash_asset]
+    if not sin_descargar:
+        _refresh_etf_data(settings, tickers)
+    con = connect(settings.db_path)
+    try:
+        prices = load_panel(con, [*tickers, ecfg.cash_asset])
+        try:
+            sig = compute_signal(prices, ecfg, date.today())
+        except EtfDataError as exc:
+            console.print(f"[red]{exc}[/red]")
+            raise typer.Exit(1) from None
+        stored = None if sig.stale else record_recommendation(con, sig, ecfg)
+        previous = previous_recommendation(con, ecfg, sig.as_of)
+        verdict = stored_verdict(con)
+    finally:
+        con.close()
+    first = not sig.stale and stored is None
+    print_signal(console, sig, ecfg, previous, stored, verdict, capital, first_record=first)
 
 
 # ---------------------------------------------------------------- IBKR / riesgo / panel

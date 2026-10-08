@@ -93,6 +93,33 @@ CREATE TABLE IF NOT EXISTS prices_daily (
     PRIMARY KEY (ticker, date)
 );
 
+-- ETFs de la rotación: precios ajustados por dividendos (retorno total) y la serie "CASH"
+-- (letras del Tesoro, FRED). Separada de prices_daily para no mezclar ajustes distintos.
+CREATE TABLE IF NOT EXISTS etf_prices_daily (
+    ticker VARCHAR NOT NULL,
+    date DATE NOT NULL,
+    open DOUBLE,
+    high DOUBLE,
+    low DOUBLE,
+    close DOUBLE,
+    volume DOUBLE,
+    source VARCHAR,
+    adjusted BOOLEAN,
+    PRIMARY KEY (ticker, date)
+);
+
+-- Recomendación mensual de la rotación. La primera de cada mes queda congelada (no se reescribe).
+CREATE TABLE IF NOT EXISTS etf_recommendations (
+    as_of_date DATE NOT NULL,          -- último día hábil del mes de la señal
+    strategy_version VARCHAR NOT NULL,
+    rules_hash VARCHAR NOT NULL,
+    weights JSON NOT NULL,             -- {ticker: peso}
+    detail JSON,                       -- retornos por horizonte y elección de cada uno
+    data_last_date DATE,
+    created_at TIMESTAMP DEFAULT current_timestamp,
+    PRIMARY KEY (as_of_date, strategy_version, rules_hash)
+);
+
 CREATE TABLE IF NOT EXISTS runs (
     run_id VARCHAR PRIMARY KEY,
     kind VARCHAR NOT NULL,

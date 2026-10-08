@@ -36,8 +36,8 @@ NO_ORDERS_BANNER = (
     "Este panel NO envía órdenes. Aprobar solo lo registra en tu diario para medir resultados."
 )
 HONESTY_NOTE = (
-    "Herramienta de estudio, no asesoría financiera. Las compras de insiders han mostrado "
-    "cierta ventaja en estudios académicos, pero nada garantiza ganancias: mide antes de "
+    "Herramienta de estudio, no asesoría financiera. Cada estrategia se prueba con reglas "
+    "congeladas antes de ver resultados; aun así, nada garantiza ganancias: mide antes de "
     "arriesgar dinero real."
 )
 SMALL_SAMPLE_N = 30
@@ -56,7 +56,9 @@ ONBOARDING_STEPS = (
 )
 
 COMMANDS_HELP = (
-    ("uv run tt diario", "Hace todos los pasos diarios (recomendado)."),
+    ("uv run tt etf-senal", "Rotación de ETFs: recomendación del mes (una vez al mes)."),
+    ("uv run tt etf-backtest", "Rotación de ETFs: backtest pre-registrado y veredicto."),
+    ("uv run tt diario", "Insiders (archivada): pasos diarios de seguimiento."),
     ("uv run tt sec-diario", "Descarga los Form 4 nuevos de la SEC."),
     ("uv run tt precios", "Actualiza los precios diarios."),
     ("uv run tt screener", "Genera las ideas del día."),
