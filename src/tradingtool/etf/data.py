@@ -37,7 +37,8 @@ log = logging.getLogger(__name__)
 ETF_TABLE = "etf_prices_daily"
 CASH = "CASH"
 CALENDAR = "SPY"  # los días hábiles del backtest son los días en que cotizó SPY
-FRED_DTB3_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=DTB3"
+# Desde 1999 basta (los ETFs empiezan en 2000) y la descarga es más liviana.
+FRED_DTB3_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=DTB3&cosd=1999-01-01"
 CASH_EXPENSE = 0.0007  # costo anual de un ETF de letras del Tesoro (IB01: 0,07%)
 MAX_GAP_DAYS = 5  # días hábiles seguidos sin dato a partir de los cuales se avisa
 
@@ -94,7 +95,7 @@ def fetch_fred_csv(
     transport: httpx.BaseTransport | None = None,
     sleep: Callable[[float], None] = time.sleep,
     retries: int = 3,
-    timeout: float = 60.0,
+    timeout: float = 120.0,
 ) -> str:
     headers = {"User-Agent": "tradingtool (investigacion personal)"}
     last: Exception | None = None
