@@ -18,6 +18,7 @@ from pydantic import ValidationError
 
 from tradingtool.config import AppConfig, load_config
 from tradingtool.models import SizingResult
+from tradingtool.registry import archived_note
 from tradingtool.settings import Settings
 from tradingtool.ui import charts
 from tradingtool.ui import presenters as p
@@ -861,6 +862,9 @@ def main() -> None:
     cfg, cfg_error = load_app_config(settings)
     if cfg_error:
         st.error(cfg_error)
+    archived = archived_note(cfg.screener.strategy_version)
+    if archived:
+        st.warning(archived, icon=":material/inventory_2:")
     render_sidebar(settings)
     if not settings.db_path.exists():
         render_onboarding()

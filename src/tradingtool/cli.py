@@ -150,7 +150,15 @@ def revisar(
         row("Clave Tiingo (precios)", bool(settings.tiingo_api_key), "TT_TIINGO_API_KEY")
     else:
         row("Fuente de precios", True, settings.price_source)
-    row("Estrategia", True, f"{cfg.screener.strategy_version} · config {cfg.config_hash()}")
+    from tradingtool.registry import archived_note
+
+    archived = archived_note(cfg.screener.strategy_version)
+    row(
+        "Estrategia de insiders",
+        None if archived else True,
+        f"{cfg.screener.strategy_version} · config {cfg.config_hash()}"
+        + (" · ARCHIVADA (solo seguimiento)" if archived else ""),
+    )
 
     if settings.db_path.exists():
         con = connect(settings.db_path)
@@ -386,6 +394,14 @@ def _run_screen(settings: Settings, cfg: AppConfig, start: date, end: date, orig
         con.close()
 
 
+def _archived_banner(strategy_version: str) -> None:
+    from tradingtool.registry import archived_note
+
+    note = archived_note(strategy_version)
+    if note:
+        console.print(f"[yellow]{note}[/yellow]")
+
+
 def _print_signals(settings: Settings, start: date, end: date) -> None:
     from tradingtool.journal.journal import list_signals
 
@@ -394,6 +410,7 @@ def _print_signals(settings: Settings, start: date, end: date) -> None:
         df = list_signals(con, start=start, end=end, passed=True, limit=20)
     finally:
         con.close()
+    _archived_banner(load_config(settings.config_dir).screener.strategy_version)
     if df.empty:
         console.print(
             "Hoy no hay ideas que pasen los filtros (es normal: la estrategia es selectiva)."

@@ -1,5 +1,7 @@
 # Protocolo de evaluación y pre-registro: estrategia `insider-v1`
 
+> **Estado (2026-10-08): ARCHIVADA. NO PASÓ la validación 2019–2025.** Resultados y lecciones en `docs/ESTRATEGIAS.md`.
+
 **Congelado el:** 2026-10-07, **antes** de ver cualquier resultado histórico.
 **Configuración:** `config/screener.yaml`, `config/risk.yaml`, `config/costs.yaml` y `config/outcomes.yaml`. El hash de la configuración queda registrado en cada ejecución (`tt revisar` lo muestra).
 
