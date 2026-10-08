@@ -153,6 +153,12 @@ def refresh_cash(
     return _replace_ticker(con, cash_bars(tbill_index(rates)), CASH, "fred")
 
 
+def load_cash_file(con: duckdb.DuckDBPyConnection, path) -> int:
+    """Carga el CSV de FRED (DTB3) descargado a mano desde el navegador."""
+    rates = parse_fred_csv(open(path, encoding="utf-8").read())  # noqa: SIM115
+    return _replace_ticker(con, cash_bars(tbill_index(rates)), CASH, "fred-archivo")
+
+
 # ----------------------------------------------------------------------------- ETFs
 
 

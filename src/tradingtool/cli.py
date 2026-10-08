@@ -678,7 +678,7 @@ def _etf_source(settings: Settings):
 
 def _refresh_etf_data(settings: Settings, tickers: list[str]) -> None:
     """Re-descarga la historia completa de ``tickers`` y del efectivo (FRED)."""
-    from tradingtool.etf.data import refresh_cash, refresh_etfs
+    from tradingtool.etf.data import load_cash_file, refresh_cash, refresh_etfs
     from tradingtool.prices.base import PriceSourceAuthError, PriceSourceError
 
     src = _etf_source(settings)
@@ -693,11 +693,21 @@ def _refresh_etf_data(settings: Settings, tickers: list[str]) -> None:
         for e in st.errors:
             console.print(f"[yellow]  {e}[/yellow]")
         console.print(f"ETFs ({src.name}): {len(st.rows)} de {len(tickers)} actualizados")
+        manual = settings.data_dir / "DTB3.csv"
         try:
             n = refresh_cash(con)
             console.print(f"Efectivo (FRED, letras del Tesoro a 3 meses): {n:,} días")
         except PriceSourceError as exc:
-            console.print(f"[red]Efectivo (FRED): {exc}[/red]")
+            if manual.exists():
+                n = load_cash_file(con, manual)
+                console.print(f"Efectivo: FRED no respondió; usé el archivo {manual} ({n:,} días)")
+            else:
+                console.print(f"[red]Efectivo (FRED): {exc}[/red]")
+                console.print(
+                    "Alternativa: abre en tu navegador "
+                    "https://fred.stlouisfed.org/graph/fredgraph.csv?id=DTB3 , guarda el archivo "
+                    f"como {manual} y vuelve a correr este comando."
+                )
     except PriceSourceAuthError as exc:
         console.print(f"[red]{exc}.[/red]")
         console.print(_auth_hint(settings, settings.etf_price_source))
